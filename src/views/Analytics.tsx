@@ -26,6 +26,7 @@ import {
 } from '@/store/useAnalyticsPnlStore';
 import { formatInr } from '@/lib/format-inr';
 import EquityCurveChart from '@/components/trader-analytics/EquityCurveChart';
+import TradePnlPctDistributionChart from '@/components/trader-analytics/TradePnlPctDistributionChart';
 
 function isEmptyStringCell(v: unknown): boolean {
   if (v === '') return true;
@@ -69,8 +70,14 @@ export default function Analytics() {
     record && overview ? computeAnalyticsQualityMetrics(record, overview) : null;
   const sum = record?.pnl_summary;
 
-  const profitChartTrades = useMemo(
-    () => record?.trade_details.map((t) => ({ pnl: t.realised_pnl, label: t.symbol })) ?? [],
+  const chartTrades = useMemo(
+    () =>
+      record?.trade_details.map((t) => ({
+        pnl: t.realised_pnl,
+        label: t.symbol,
+        pnlPct: t.realised_pnl_pct,
+        totalTradeValue: t.total_trade_value,
+      })) ?? [],
     [record],
   );
 
@@ -183,7 +190,7 @@ export default function Analytics() {
         </section>
       )}
 
-      {profitChartTrades.length > 0 && (
+      {chartTrades.length > 0 && (
         <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Cumulative realized profit</h2>
@@ -196,12 +203,29 @@ export default function Analytics() {
           </div>
           <div className="w-full min-h-[300px] min-w-0">
             <EquityCurveChart
-              trades={profitChartTrades}
+              trades={chartTrades}
               height={300}
               curveOptions={{ includeOrigin: true }}
               xAxisLabel="Trade # (workbook row order)"
               cumulativeLabel="Net realized profit"
             />
+          </div>
+        </section>
+      )}
+
+      {chartTrades.length > 0 && (
+        <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Realized return per symbol (sorted)</h2>
+            <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
+              One bar per symbol row, ordered from <span className="text-gray-400">lowest</span> to{' '}
+              <span className="text-gray-400">highest</span> workbook{' '}
+              <span className="text-gray-400">realised_pnl_pct</span> (e.g. −8%, −5%, 4%, 12%). Bars extend
+              below zero for losses. Hover a bar for symbol, rupee P&amp;L, return %, and total trade value.
+            </p>
+          </div>
+          <div className="w-full min-h-[320px] min-w-0">
+            <TradePnlPctDistributionChart trades={chartTrades} height={320} />
           </div>
         </section>
       )}

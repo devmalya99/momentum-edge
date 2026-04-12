@@ -164,6 +164,10 @@ export interface PnlChartTrade {
   date?: string;
   /** e.g. stock symbol */
   label?: string;
+  /** Realized return % from workbook when present (Zerodha-style export). */
+  pnlPct?: number;
+  /** Quantity × buy value when present. */
+  totalTradeValue?: number;
 }
 
 export interface BrokerSnapshot {

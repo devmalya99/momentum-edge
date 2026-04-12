@@ -40,6 +40,34 @@ export function buildDistributionBars(trades: PnlChartTrade[]): DistributionBarP
   }));
 }
 
+export type DistributionPctBarPoint = {
+  idx: number;
+  pnl: number;
+  /** Realized return % (bar value); NaN coerced to 0 for display only. */
+  pnlPct: number;
+  label?: string;
+  totalTradeValue?: number;
+};
+
+/** Ascending by return % (worst % left, best % right); falls back to INR P&amp;L when % missing. */
+export function buildDistributionBarsByPct(trades: PnlChartTrade[]): DistributionPctBarPoint[] {
+  const rows = filterChartTrades(trades);
+  const pctOf = (t: PnlChartTrade): number =>
+    typeof t.pnlPct === 'number' && Number.isFinite(t.pnlPct) ? t.pnlPct : t.pnl;
+  const sorted = [...rows].sort((a, b) => pctOf(a) - pctOf(b));
+  return sorted.map((t, i) => {
+    const rawPct = t.pnlPct;
+    const pnlPct = typeof rawPct === 'number' && Number.isFinite(rawPct) ? rawPct : 0;
+    return {
+      idx: i + 1,
+      pnl: t.pnl,
+      pnlPct,
+      label: t.label,
+      totalTradeValue: t.totalTradeValue,
+    };
+  });
+}
+
 export type EquityPoint = {
   tradeIndex: number;
   equity: number;

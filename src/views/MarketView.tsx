@@ -27,6 +27,7 @@ import {
 import { format, parseISO, subMonths } from 'date-fns';
 import TradingViewWidget from '@/components/TradingViewWidget';
 import TradingViewScreenerWidget from '@/components/TradingViewScreenerWidget';
+import LargeDealsPanel from '@/components/market/LargeDealsPanel';
 import { NSE_MONTHLY_LOOKBACK } from '@/lib/nse-month-keys';
 
 interface ADData {
@@ -257,6 +258,8 @@ export default function MarketView() {
   /** Full 0–100% oscillator scale vs zoom-to-data for small moves. */
   const [fiiYAxisFullRange, setFiiYAxisFullRange] = useState(true);
 
+  const [largeDealsReloadToken, setLargeDealsReloadToken] = useState(0);
+
   const chartYearOptions = useMemo(() => {
     const cy = new Date().getFullYear();
     const oldest = Math.max(1990, cy - 25);
@@ -381,6 +384,7 @@ export default function MarketView() {
     void loadHistory();
     void loadFiiRatio();
     void loadNeonDaily();
+    setLargeDealsReloadToken((t) => t + 1);
   }, [loadLive, loadHistory, loadFiiRatio, loadNeonDaily]);
 
   useEffect(() => {
@@ -896,6 +900,8 @@ export default function MarketView() {
           </button>
         </div>
       )}
+
+      <LargeDealsPanel reloadToken={largeDealsReloadToken} />
 
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
