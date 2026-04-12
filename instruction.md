@@ -1,0 +1,26 @@
+# Instructions & Workflow
+
+## Tech Stack
+- **Frontend**: React (v19), Vite, TailwindCSS (v4), Framer Motion, Zustand
+- **Backend/API Integration**: Express, Google GenAI SDK (`@google/genai`)
+- **Language**: TypeScript
+
+## Project Planning & Step-By-Step Workflow
+
+### ✅ Step 1: Initial Setup
+- Installed core client/server dependencies.
+- Configured foundational tracking files (`accomplishments.md`, `instruction.md`).
+
+### ✅ Step 2: Env Configuration, DB, & Trade Settings
+- Rename `.env.example` to `.env.local` and initialized Dev Server.
+- Configured Risk rules blocking trade entries via max risk % parameters.
+- Built-out generic `TradeTypes` & `NetworthAssets` allowing custom entries per user.
+
+### ✅ Step 3: Layout & Advanced UI
+- Created dedicated Networth Tab within sidebar.
+- Added `xlsx` processor to deserialize Zerodha Equity Holdings reports directly into the database.
+- Implemented rich hover-tooltips for Trade Context during form data entry.
+
+### 🔜 Step 4: Logic & State Management
+- Utilize `zustand` to manage app states effectively. 
+- Ensure best practices for performance and modern web design aesthetics.
