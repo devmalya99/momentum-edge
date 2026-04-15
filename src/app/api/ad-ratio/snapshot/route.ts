@@ -1,9 +1,5 @@
 import { NextResponse } from 'next/server';
-import { nseFetchJson } from '@/lib/nse-fetch';
-import { ensureAdRatioDailyTable, upsertAdRatioDaily } from '@/lib/db/ad-ratio';
-import { parseNseLiveAdvanceDecline } from '@/lib/nse-live-advance-decline';
-
-const NSE_ADVANCE_URL = 'https://www.nseindia.com/api/live-analysis-advance';
+import { syncAdRatioTodayIfChanged } from '@/lib/ad-ratio-sync';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -27,46 +23,15 @@ function authorize(request: Request): boolean {
 }
 
 async function runSnapshot(): Promise<NextResponse> {
-  if (!process.env.DATABASE_URL?.trim()) {
-    return NextResponse.json({ error: 'DATABASE_URL is not configured' }, { status: 503 });
-  }
-
-  const result = await nseFetchJson<unknown>(NSE_ADVANCE_URL);
+  const result = await syncAdRatioTodayIfChanged();
   if (!result.ok) {
     return NextResponse.json(
-      { error: `NSE responded with ${result.status}`, detail: result.detail },
-      { status: result.status >= 500 ? 502 : 400 },
+      { error: result.error, detail: result.detail },
+      { status: result.status },
     );
   }
 
-  const parsed = parseNseLiveAdvanceDecline(result.data);
-  if (!parsed) {
-    return NextResponse.json(
-      { error: 'Unexpected NSE live advance/decline payload shape' },
-      { status: 502 },
-    );
-  }
-
-  await ensureAdRatioDailyTable();
-  await upsertAdRatioDaily({
-    trade_date: parsed.tradeDateIst,
-    advances: parsed.advances,
-    declines: parsed.declines,
-    unchange: parsed.unchange,
-    total: parsed.total,
-    ad_ratio: parsed.adRatio,
-    nse_timestamp: parsed.nseTimestampIso,
-  });
-
-  return NextResponse.json({
-    ok: true,
-    stored: {
-      trade_date: parsed.tradeDateIst,
-      advances: parsed.advances,
-      declines: parsed.declines,
-      ad_ratio: parsed.adRatio,
-    },
-  });
+  return NextResponse.json(result);
 }
 
 export async function GET(request: Request) {

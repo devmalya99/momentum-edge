@@ -12,6 +12,7 @@ export default function Dashboard() {
   const { trades, isLoading, settings } = useTradeStore();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'All' | 'Active' | 'Closed'>('All');
+  const [tradeTypeFilter, setTradeTypeFilter] = useState<string>('All');
   type SortKey = 'date' | 'invested' | 'pnlValue' | 'pnlPercent';
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -26,8 +27,48 @@ export default function Dashboard() {
     else { setSortKey(key); setSortDir('desc'); }
   };
 
+  const tradeTypeOptions = useMemo(() => {
+    const fromSettings = (settings.tradeTypes ?? []).map((t) => t.name).filter(Boolean);
+    const fromTrades = trades.map((t) => t.type).filter(Boolean);
+    return ['All', ...Array.from(new Set([...fromSettings, ...fromTrades]))];
+  }, [settings.tradeTypes, trades]);
+
+  const typeFilteredTrades = useMemo(() => {
+    if (tradeTypeFilter === 'All') return trades;
+    return trades.filter((t) => t.type === tradeTypeFilter);
+  }, [trades, tradeTypeFilter]);
+
+  const activeTypeBreakdown = useMemo(() => {
+    const activeTrades = trades.filter((t) => t.status === 'Active');
+    const totalAllocation = activeTrades.reduce(
+      (sum, t) => sum + t.positionSize * markPriceForTrade(t, livePriceBySymbol),
+      0,
+    );
+    const grouped = new Map<string, { type: string; stocks: number; allocation: number }>();
+
+    for (const trade of activeTrades) {
+      const key = trade.type || 'Uncategorized';
+      const existing = grouped.get(key);
+      const allocation = trade.positionSize * markPriceForTrade(trade, livePriceBySymbol);
+      if (!existing) {
+        grouped.set(key, { type: key, stocks: 1, allocation });
+      } else {
+        grouped.set(key, {
+          ...existing,
+          stocks: existing.stocks + 1,
+          allocation: existing.allocation + allocation,
+        });
+      }
+    }
+
+    return {
+      totalAllocation,
+      rows: Array.from(grouped.values()).sort((a, b) => b.allocation - a.allocation),
+    };
+  }, [trades, livePriceBySymbol]);
+
   const sortedAndFilteredTrades = useMemo(() => {
-    let result = trades.filter(t => {
+    const result = typeFilteredTrades.filter(t => {
       const matchesSearch = t.symbol.toLowerCase().includes(search.toLowerCase());
       const matchesFilter = filter === 'All' || t.status === filter;
       return matchesSearch && matchesFilter;
@@ -55,11 +96,11 @@ export default function Dashboard() {
       return sortDir === 'asc' ? valA - valB : valB - valA;
     });
     return result;
-  }, [trades, search, filter, sortKey, sortDir, livePriceBySymbol]);
+  }, [typeFilteredTrades, search, filter, sortKey, sortDir, livePriceBySymbol]);
 
   const stats = useMemo(() => {
-    const activeTrades = trades.filter(t => t.status === 'Active');
-    const closed = trades.filter(t => t.status === 'Closed');
+    const activeTrades = typeFilteredTrades.filter(t => t.status === 'Active');
+    const closed = typeFilteredTrades.filter(t => t.status === 'Closed');
     const wins = closed.filter(t => t.exitPrice! > t.entryPrice).length;
     const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
     
@@ -69,10 +110,25 @@ export default function Dashboard() {
       0,
     );
     const stocksUnrealized = stocksPresent - stocksInvested;
-    const stocksUnrealizedPct = stocksInvested > 0 ? (stocksUnrealized / stocksInvested) * 100 : 0;
+    const brokerMarginUsed =
+      typeof settings?.brokerMarginUsed === 'number' && Number.isFinite(settings.brokerMarginUsed)
+        ? settings.brokerMarginUsed
+        : 0;
+    const actualInvestedCapital = Math.max(0, stocksInvested - brokerMarginUsed);
+    const stocksUnrealizedPct =
+      actualInvestedCapital > 0 ? (stocksUnrealized / actualInvestedCapital) * 100 : 0;
     
-    return { active: activeTrades.length, winRate, total: trades.length, stocksInvested, stocksPresent, stocksUnrealized, stocksUnrealizedPct };
-  }, [trades, livePriceBySymbol]);
+    return {
+      active: activeTrades.length,
+      winRate,
+      total: typeFilteredTrades.length,
+      stocksInvested,
+      stocksPresent,
+      stocksUnrealized,
+      stocksUnrealizedPct,
+      brokerMarginUsed,
+    };
+  }, [typeFilteredTrades, livePriceBySymbol, settings?.brokerMarginUsed]);
 
   const selectedTrade = trades.find(t => t.id === selectedTradeId);
 
@@ -93,9 +149,13 @@ export default function Dashboard() {
               trades
                 .filter((t) => t.status === 'Active')
                 .reduce((sum, t) => sum + t.positionSize * markPriceForTrade(t, livePriceBySymbol), 0)
+              -
+              (typeof settings?.brokerMarginUsed === 'number' && Number.isFinite(settings.brokerMarginUsed)
+                ? settings.brokerMarginUsed
+                : 0)
             ).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </div>
-          <div className="text-[10px] text-gray-500 mt-2">Static Assets & Active Trades</div>
+          <div className="text-[10px] text-gray-500 mt-2">Static Assets + Active Trades − Margin Used</div>
         </div>
 
         <div className="p-6 rounded-3xl bg-blue-600/5 border border-blue-500/10 flex items-center gap-5">
@@ -150,6 +210,62 @@ export default function Dashboard() {
         </div>
       )}
 
+      {activeTypeBreakdown.rows.length > 0 && (
+        <div className="p-6 rounded-3xl bg-cyan-600/5 border border-cyan-500/10">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-sm font-bold text-cyan-400 uppercase tracking-widest">
+              Active Allocation By Trade Type
+            </h2>
+            <button
+              type="button"
+              onClick={() => setTradeTypeFilter('All')}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all ${
+                tradeTypeFilter === 'All'
+                  ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300'
+                  : 'bg-[#0a0a0b] border-white/10 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              All
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {activeTypeBreakdown.rows.map((row) => {
+              const allocationPct =
+                activeTypeBreakdown.totalAllocation > 0
+                  ? (row.allocation / activeTypeBreakdown.totalAllocation) * 100
+                  : 0;
+              const isActive = tradeTypeFilter === row.type;
+              return (
+                <button
+                  key={row.type}
+                  type="button"
+                  onClick={() => setTradeTypeFilter(row.type)}
+                  className={`text-left p-4 rounded-2xl border transition-all ${
+                    isActive
+                      ? 'bg-cyan-500/15 border-cyan-400/40'
+                      : 'bg-[#0a0a0b] border-white/10 hover:border-white/20'
+                  }`}
+                >
+                  <div className="text-xs font-bold uppercase tracking-wider text-cyan-300 truncate">
+                    {row.type}
+                  </div>
+                  <div className="mt-2 text-sm text-gray-300">
+                    Allocation: ₹
+                    {row.allocation.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Stocks: {row.stocks} · {allocationPct.toFixed(1)}%
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {stats.stocksInvested > 0 && (
         <div className="p-6 rounded-3xl bg-blue-600/5 border border-blue-500/10">
           <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4">Stocks & Active Trading Segment</h2>
@@ -169,7 +285,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Unrealized %</div>
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">
+                Unrealized % (on invested - margin)
+              </div>
               <div className={`text-lg font-bold ${stats.stocksUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {stats.stocksUnrealizedPct.toFixed(2)}%
               </div>
@@ -180,15 +298,33 @@ export default function Dashboard() {
 
       {/* Filters & Search */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-          <input
-            type="text"
-            placeholder="Search symbol..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#161618] border border-white/5 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
-          />
+        <div className="w-full md:w-auto flex flex-col md:flex-row gap-3">
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+            <input
+              type="text"
+              placeholder="Search symbol..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-[#161618] border border-white/5 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 p-1 bg-[#161618] border border-white/5 rounded-2xl">
+            {tradeTypeOptions.map((typeOption) => (
+              <button
+                key={typeOption}
+                type="button"
+                onClick={() => setTradeTypeFilter(typeOption)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  tradeTypeFilter === typeOption
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {typeOption}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex items-center gap-2 p-1 bg-[#161618] border border-white/5 rounded-2xl">
           {(['All', 'Active', 'Closed'] as const).map((f) => (

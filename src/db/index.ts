@@ -70,6 +70,16 @@ export interface Settings {
   riskPerTradePercent: number;
   tradeTypes: TradeTypeConfig[];
   networthAssets: NetworthAsset[];
+  /** Borrowed margin currently used for trading; subtracted in networth view. */
+  brokerMarginUsed: number;
+}
+
+export interface WatchlistItem {
+  /** TradingView symbol key, e.g. BSE:RELIANCE */
+  id: string;
+  symbol: string;
+  companyName: string;
+  addedAt: number;
 }
 
 interface MomentumDB extends DBSchema {
@@ -86,19 +96,36 @@ interface MomentumDB extends DBSchema {
     key: string;
     value: Settings;
   };
+  watchlist: {
+    key: string;
+    value: WatchlistItem;
+    indexes: { 'by-addedAt': number };
+  };
 }
 
 const DB_NAME = 'momentum-edge-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export async function initDB(): Promise<IDBPDatabase<MomentumDB>> {
   return openDB<MomentumDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
-      const tradeStore = db.createObjectStore('trades', { keyPath: 'id' });
-      tradeStore.createIndex('by-date', 'entryDate');
-      
-      db.createObjectStore('rules', { keyPath: 'id' });
-      db.createObjectStore('settings', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('trades')) {
+        const tradeStore = db.createObjectStore('trades', { keyPath: 'id' });
+        tradeStore.createIndex('by-date', 'entryDate');
+      }
+
+      if (!db.objectStoreNames.contains('rules')) {
+        db.createObjectStore('rules', { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains('watchlist')) {
+        const watchlistStore = db.createObjectStore('watchlist', { keyPath: 'id' });
+        watchlistStore.createIndex('by-addedAt', 'addedAt');
+      }
     },
   });
 }

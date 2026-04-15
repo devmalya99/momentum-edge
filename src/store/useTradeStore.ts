@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Rule, Trade, Settings, initDB } from '../db';
+import { Rule, Trade, Settings, WatchlistItem, initDB } from '../db';
 
 // Use crypto.randomUUID for unique IDs
 const generateId = () => crypto.randomUUID();
@@ -8,6 +8,7 @@ interface TradeState {
   trades: Trade[];
   rules: Rule[];
   settings: Settings;
+  watchlist: WatchlistItem[];
   isLoading: boolean;
   
   // Actions
@@ -22,6 +23,9 @@ interface TradeState {
   deleteRule: (id: string) => Promise<void>;
   
   updateSettings: (updates: Partial<Settings>) => Promise<void>;
+  addToWatchlist: (item: Omit<WatchlistItem, 'addedAt'>) => Promise<void>;
+  removeFromWatchlist: (id: string) => Promise<void>;
+  toggleWatchlist: (item: Omit<WatchlistItem, 'addedAt'>) => Promise<void>;
 }
 
 const DEFAULT_RULES: Omit<Rule, 'id'>[] = [
@@ -45,8 +49,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     totalCapital: 100000, 
     riskPerTradePercent: 1,
     tradeTypes: [],
-    networthAssets: []
+    networthAssets: [],
+    brokerMarginUsed: 0,
   },
+  watchlist: [],
   isLoading: true,
 
   fetchData: async () => {
@@ -54,6 +60,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const trades = await db.getAll('trades');
     let rules = await db.getAll('rules');
     let settings = await db.get('settings', 'global');
+    const watchlist = (await db.getAll('watchlist')).sort((a, b) => b.addedAt - a.addedAt);
 
     if (rules.length === 0) {
       for (const r of DEFAULT_RULES) {
@@ -85,6 +92,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         totalCapital: 100000, 
         riskPerTradePercent: 1,
         tradeTypes: DEFAULT_TRADE_TYPES,
+        brokerMarginUsed: 0,
         networthAssets: [
           { id: generateId(), name: 'Bank Balance', value: 0 },
           { id: generateId(), name: 'Stocks', value: 0 },
@@ -105,6 +113,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         ];
         updated = true;
       }
+      if (typeof settings.brokerMarginUsed !== 'number' || !Number.isFinite(settings.brokerMarginUsed)) {
+        settings.brokerMarginUsed = 0;
+        updated = true;
+      }
       if (updated) {
         await db.put('settings', settings);
       }
@@ -114,6 +126,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       trades: trades.sort((a, b) => b.entryDate - a.entryDate), 
       rules, 
       settings, 
+      watchlist,
       isLoading: false 
     });
   },
@@ -200,5 +213,34 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const updatedSettings = { ...settings, ...updates };
     await db.put('settings', updatedSettings);
     set({ settings: updatedSettings });
+  },
+
+  addToWatchlist: async (item) => {
+    const db = await initDB();
+    const existing = await db.get('watchlist', item.id);
+    if (existing) return;
+
+    const next: WatchlistItem = { ...item, addedAt: Date.now() };
+    await db.put('watchlist', next);
+    set((state) => ({
+      watchlist: [next, ...state.watchlist].sort((a, b) => b.addedAt - a.addedAt),
+    }));
+  },
+
+  removeFromWatchlist: async (id) => {
+    const db = await initDB();
+    await db.delete('watchlist', id);
+    set((state) => ({
+      watchlist: state.watchlist.filter((w) => w.id !== id),
+    }));
+  },
+
+  toggleWatchlist: async (item) => {
+    const existing = get().watchlist.some((w) => w.id === item.id);
+    if (existing) {
+      await get().removeFromWatchlist(item.id);
+    } else {
+      await get().addToWatchlist(item);
+    }
   },
 }));

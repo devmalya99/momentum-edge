@@ -75,6 +75,24 @@ export type AdRatioDailyRow = {
   declines: number;
 };
 
+export async function getAdRatioDailyByDate(tradeDate: string): Promise<AdRatioDailyRow | null> {
+  await ensureAdRatioDailyTable();
+  const sql = getNeonSql();
+  const rows = await sql`
+    SELECT
+      trade_date::text AS trade_date,
+      ad_ratio,
+      advances,
+      declines
+    FROM ad_ratio_daily
+    WHERE trade_date = ${tradeDate}::date
+    LIMIT 1
+  `;
+
+  if (!rows.length) return null;
+  return rows[0] as AdRatioDailyRow;
+}
+
 /** Inclusive date bounds as `YYYY-MM-DD`. */
 export async function listAdRatioDailyBetween(
   startInclusive: string,

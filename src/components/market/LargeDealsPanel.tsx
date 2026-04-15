@@ -15,7 +15,63 @@ function formatQty(qty: string): string {
   return n.toLocaleString('en-IN');
 }
 
-function DealTable({ rows, emptyLabel }: { rows: NseLargeDealRow[]; emptyLabel: string }) {
+type GroupedDealRow = {
+  symbol: string;
+  name: string;
+  txCount: number;
+  totalQty: number;
+  totalTurnover: number;
+};
+
+const MIN_TURNOVER_FILTER = 100_000_000; // 10 crore
+
+function toNumber(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const n = Number(raw.replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function aggregateDealsBySymbol(rows: NseLargeDealRow[]): GroupedDealRow[] {
+  const grouped = new Map<string, GroupedDealRow>();
+
+  for (const row of rows) {
+    const symbol = row.symbol?.trim().toUpperCase();
+    if (!symbol) continue;
+
+    const qty = toNumber(row.qty);
+    const watp = toNumber(row.watp);
+    if (qty == null || watp == null) continue;
+
+    const turnover = qty * watp;
+    const prev = grouped.get(symbol);
+    if (!prev) {
+      grouped.set(symbol, {
+        symbol,
+        name: row.name ?? symbol,
+        txCount: 1,
+        totalQty: qty,
+        totalTurnover: turnover,
+      });
+    } else {
+      grouped.set(symbol, {
+        ...prev,
+        txCount: prev.txCount + 1,
+        totalQty: prev.totalQty + qty,
+        totalTurnover: prev.totalTurnover + turnover,
+      });
+    }
+  }
+
+  return Array.from(grouped.values())
+    .filter((row) => row.totalTurnover >= MIN_TURNOVER_FILTER)
+    .sort((a, b) => b.totalTurnover - a.totalTurnover);
+}
+
+function formatInr(v: number): string {
+  return `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+function DealTable({ rows, emptyLabel }: { rows: GroupedDealRow[]; emptyLabel: string }) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-gray-500 py-6 text-center border border-dashed border-white/10 rounded-2xl">
@@ -26,39 +82,33 @@ function DealTable({ rows, emptyLabel }: { rows: NseLargeDealRow[]; emptyLabel: 
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-white/10">
-      <table className="w-full text-left text-xs min-w-[720px]">
+      <table className="w-full text-left text-xs min-w-[680px]">
         <thead>
           <tr className="border-b border-white/10 bg-white/3 text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            <th className="px-3 py-2.5 whitespace-nowrap">Date</th>
             <th className="px-3 py-2.5 whitespace-nowrap">Symbol</th>
             <th className="px-3 py-2.5 min-w-[140px]">Name</th>
-            <th className="px-3 py-2.5 min-w-[160px]">Client</th>
-            <th className="px-3 py-2.5 text-right whitespace-nowrap">Qty</th>
-            <th className="px-3 py-2.5 text-right whitespace-nowrap">WATP</th>
-            <th className="px-3 py-2.5 whitespace-nowrap">Remarks</th>
+            <th className="px-3 py-2.5 text-right whitespace-nowrap">Transactions</th>
+            <th className="px-3 py-2.5 text-right whitespace-nowrap">Total Qty</th>
+            <th className="px-3 py-2.5 text-right whitespace-nowrap">Total Qty × WATP</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/5">
           {rows.map((r, i) => (
-            <tr key={`${r.symbol}-${r.date}-${r.clientName ?? ''}-${i}`} className="hover:bg-white/2">
-              <td className="px-3 py-2 text-gray-400 whitespace-nowrap tabular-nums">{r.date}</td>
+            <tr key={`${r.symbol}-${i}`} className="hover:bg-white/2">
               <td className="px-3 py-2 font-mono font-semibold text-emerald-300/90 whitespace-nowrap">
                 {r.symbol}
               </td>
               <td className="px-3 py-2 text-gray-300 max-w-[220px] truncate" title={r.name}>
                 {r.name}
               </td>
-              <td className="px-3 py-2 text-gray-400 max-w-[200px] truncate" title={r.clientName ?? ''}>
-                {r.clientName ?? '—'}
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-300">
+                {r.txCount.toLocaleString('en-IN')}
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-200">
-                {formatQty(r.qty)}
+                {formatQty(String(r.totalQty))}
               </td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-300">
-                {r.watp ?? '—'}
-              </td>
-              <td className="px-3 py-2 text-gray-500 max-w-[100px] truncate" title={r.remarks ?? ''}>
-                {r.remarks && r.remarks !== '-' ? r.remarks : '—'}
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-amber-300/90">
+                {formatInr(r.totalTurnover)}
               </td>
             </tr>
           ))}
@@ -109,11 +159,11 @@ export default function LargeDealsPanel({ reloadToken = 0 }: Props) {
   }, [load, reloadToken]);
 
   const bulkRows = useMemo(
-    () => buySideOnly(normalizeLargeDealRows(snapshot?.BULK_DEALS_DATA)),
+    () => aggregateDealsBySymbol(buySideOnly(normalizeLargeDealRows(snapshot?.BULK_DEALS_DATA))),
     [snapshot],
   );
   const blockRows = useMemo(
-    () => buySideOnly(normalizeLargeDealRows(snapshot?.BLOCK_DEALS_DATA)),
+    () => aggregateDealsBySymbol(buySideOnly(normalizeLargeDealRows(snapshot?.BLOCK_DEALS_DATA))),
     [snapshot],
   );
 
@@ -130,6 +180,7 @@ export default function LargeDealsPanel({ reloadToken = 0 }: Props) {
             {' — '}
             Source: NSE India{' '}
             <span className="text-gray-400 font-mono text-[10px]">snapshot-capital-market-largedeal</span>
+            {' · grouped by symbol · sorted by total Qty × WATP (desc)'}
             {snapshot?.as_on_date ? (
               <>
                 {' '}
@@ -201,9 +252,9 @@ export default function LargeDealsPanel({ reloadToken = 0 }: Props) {
           </div>
 
           {tab === 'bulk' ? (
-            <DealTable rows={bulkRows} emptyLabel="No bulk buy deals in this snapshot." />
+            <DealTable rows={bulkRows} emptyLabel="No bulk buy deals to aggregate in this snapshot." />
           ) : (
-            <DealTable rows={blockRows} emptyLabel="No block buy deals in this snapshot." />
+            <DealTable rows={blockRows} emptyLabel="No block buy deals to aggregate in this snapshot." />
           )}
         </>
       )}

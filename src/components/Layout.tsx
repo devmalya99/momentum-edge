@@ -13,6 +13,8 @@ import {
   X,
   PieChart,
   Globe,
+  ScanSearch,
+  Bookmark,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -33,6 +35,8 @@ const NAV_ITEMS = [
   { id: 'networth', label: 'Networth', icon: PieChart, href: '/networth' },
   { id: 'analytics', label: 'Analytics', icon: BarChart2, href: '/analytics' },
   { id: 'market-view', label: 'Market View', icon: Globe, href: '/market-view' },
+  { id: '52h-scanner', label: '52 H Scanner', icon: ScanSearch, href: '/52w-scanner' },
+  { id: 'watchlist', label: 'Watchlist', icon: Bookmark, href: '/watchlist' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
 ] as const;
 
@@ -40,7 +44,8 @@ export default function Layout({ children }: LayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
 
-  const wideContent = pathname === '/stock-charts';
+  const wideContent =
+    pathname === '/stock-charts' || pathname === '/52w-scanner' || pathname === '/watchlist';
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-gray-100 font-sans selection:bg-blue-500/30">

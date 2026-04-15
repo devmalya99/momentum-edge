@@ -131,9 +131,16 @@ export default function Networth() {
     0,
   );
   const stocksUnrealized = stocksPresent - stocksInvested;
-  const stocksUnrealizedPct = stocksInvested > 0 ? (stocksUnrealized / stocksInvested) * 100 : 0;
+  const brokerMarginUsed =
+    typeof settings?.brokerMarginUsed === 'number' && Number.isFinite(settings.brokerMarginUsed)
+      ? settings.brokerMarginUsed
+      : 0;
+  const actualInvestedCapital = Math.max(0, stocksInvested - brokerMarginUsed);
+  const stocksUnrealizedPct =
+    actualInvestedCapital > 0 ? (stocksUnrealized / actualInvestedCapital) * 100 : 0;
 
-  const totalValue = manualAssetsValue + stocksPresent;
+  const grossTotalValue = manualAssetsValue + stocksPresent;
+  const totalValue = grossTotalValue - brokerMarginUsed;
 
   const hasStocksManualRow =
     settings?.networthAssets?.some((a) => (a.name || '').trim().toLowerCase() === 'stocks') ?? false;
@@ -157,6 +164,12 @@ export default function Networth() {
               {' '}
               + {formatInr(stocksPresent)} active equity ({activeTrades.length}{' '}
               {activeTrades.length === 1 ? 'position' : 'positions'}, NSE mark)
+            </>
+          ) : null}
+          {brokerMarginUsed > 0 ? (
+            <>
+              {' '}
+              − {formatInr(brokerMarginUsed)} broker margin used
             </>
           ) : null}
           {hasActiveEquity && hasStocksManualRow ? (
@@ -197,7 +210,9 @@ export default function Networth() {
               </div>
             </div>
             <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Unrealized %</div>
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">
+                Unrealized % (on invested - margin)
+              </div>
               <div className={`text-lg font-bold ${stocksUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {stocksUnrealizedPct.toFixed(2)}%
               </div>
@@ -205,6 +220,47 @@ export default function Networth() {
           </div>
         </div>
       )}
+
+      <section className="p-6 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
+        <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest">
+          Margin Adjustment
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-2">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              Broker Margin Used
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">₹</span>
+              <input
+                type="number"
+                min={0}
+                value={brokerMarginUsed}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  updateSettings({
+                    brokerMarginUsed: Number.isFinite(next) && next > 0 ? next : 0,
+                  });
+                }}
+                className="w-full bg-transparent outline-none font-bold text-lg"
+                placeholder="0"
+              />
+            </div>
+            <p className="text-[10px] text-gray-600">
+              Enter borrowed margin from broker. This is subtracted from gross portfolio value.
+            </p>
+          </div>
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+            <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">
+              Actual Networth Formula
+            </div>
+            <div className="text-sm text-gray-300 leading-relaxed">
+              {formatInr(grossTotalValue)} gross assets − {formatInr(brokerMarginUsed)} margin ={' '}
+              <span className="font-black text-amber-400">{formatInr(totalValue)}</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {error && (
         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-3">

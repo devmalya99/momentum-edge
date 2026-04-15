@@ -9,6 +9,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { fetchData, isLoading } = useTradeStore();
 
   useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/ad-ratio/sync-on-load', {
+      method: 'POST',
+      cache: 'no-store',
+      signal: controller.signal,
+    }).catch(() => {
+      // Ignore startup sync errors: app should remain usable.
+    });
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     fetchData();
   }, [fetchData]);
 
