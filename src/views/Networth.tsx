@@ -1,12 +1,52 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { useTradeStore } from '../store/useTradeStore';
-import { PieChart, Plus, Trash2, Upload, Activity, ShieldAlert, Loader2 } from 'lucide-react';
+import { IMPORTED_HOLDINGS_NOTE, isImportedHoldingTrade, useTradeStore } from '../store/useTradeStore';
+import { PieChart, Plus, Trash2, Upload, Activity, ShieldAlert, Loader2, Info } from 'lucide-react';
 import * as xlsx from 'xlsx';
 import { markPriceForTrade, useActiveTradeLivePrices } from '@/hooks/useActiveTradeLivePrices';
 import { formatInr } from '@/lib/format-inr';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+type NetworthMasterPayload = {
+  totalInvested: number;
+  currentHoldingValue: number;
+  unrealisedPnl: number;
+  unrealisedPnlPct: number;
+  marginAmount: number;
+};
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex items-center group">
+      <button
+        type="button"
+        aria-label="Info"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-gray-400 hover:text-cyan-300 hover:border-cyan-300/50 transition-colors"
+      >
+        <Info className="h-3 w-3" aria-hidden />
+      </button>
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 rounded-lg border border-white/10 bg-[#111214] px-3 py-2 text-[11px] font-normal normal-case tracking-normal text-gray-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {text}
+      </span>
+    </span>
+  );
+}
 
 export default function Networth() {
-  const { settings, updateSettings, trades, addTrades } = useTradeStore();
+  const { settings, updateSettings, trades, replaceImportedHoldings } = useTradeStore();
+  const queryClient = useQueryClient();
+
+  const networthMasterQuery = useQuery({
+    queryKey: ['networth-master'],
+    queryFn: async () => {
+      const res = await fetch('/api/networth/master', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to load networth master');
+      const body = (await res.json()) as { master: NetworthMasterPayload };
+      return body.master;
+    },
+    retry: 1,
+  });
+
+  const master = networthMasterQuery.data;
   const { livePriceBySymbol, quotesFetching, quoteErrors, activeSymbols } =
     useActiveTradeLivePrices(trades);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,21 +73,30 @@ export default function Networth() {
     setError(null);
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
+    void (async () => {
       try {
-        const bstr = evt.target?.result;
-        const wb = xlsx.read(bstr, { type: 'binary' });
+        const buf = await file.arrayBuffer();
+        const wb = xlsx.read(buf, { type: 'array' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = xlsx.utils.sheet_to_json<any[]>(ws, { header: 1 });
+        console.log('[Networth XLSX] workbook structure', {
+          fileName: file.name,
+          sheetNames: wb.SheetNames,
+          activeSheet: wsname,
+          totalRows: data.length,
+          previewRows: data.slice(0, 12),
+        });
         
         const headerIdx = data.findIndex(row => row.some(cell => typeof cell === 'string' && (cell.includes('Symbol') || cell.includes('ISIN'))));
         
         if (headerIdx === -1) throw new Error('Could not parse XLSX. Missing headers (Symbol, etc). Make sure this is a Zerodha Holdings Excel file.');
         
         const headers = data[headerIdx] as string[];
+        console.log('[Networth XLSX] detected header row', {
+          headerRowIndex: headerIdx,
+          headers,
+        });
         
         const symIdx = headers.findIndex(h => h && h.toString().trim() === 'Symbol');
         const qtyIdx = headers.findIndex(h => h && h.toString().includes('Quantity Available'));
@@ -59,7 +108,17 @@ export default function Networth() {
         }
 
         const defaultType = settings.tradeTypes?.[0]?.name || 'Buy & Forget';
-        const existingActiveSymbols = new Set(trades.filter(t => t.status === 'Active').map(t => t.symbol));
+        const existingManualActiveSymbols = new Set(
+          trades
+            .filter((t) => t.status === 'Active' && !isImportedHoldingTrade(t))
+            .map((t) => t.symbol),
+        );
+        const parsedHoldings: {
+          symbol: string;
+          quantity: number;
+          averagePrice: number;
+          previousClosePrice: number;
+        }[] = [];
         const newTrades = [];
         
         for (let i = headerIdx + 1; i < data.length; i++) {
@@ -73,7 +132,16 @@ export default function Networth() {
             const entryPrice = parseFloat(row[avgPriceIdx] || 0);
             const currentPrice = parseFloat(row[closePriceIdx] || 0);
             
-            if (qty > 0 && entryPrice > 0 && !existingActiveSymbols.has(symbol)) {
+            if (qty > 0 && entryPrice > 0) {
+                 parsedHoldings.push({
+                   symbol: String(symbol).trim().toUpperCase(),
+                   quantity: qty,
+                   averagePrice: entryPrice,
+                   previousClosePrice: currentPrice > 0 ? currentPrice : entryPrice,
+                 });
+            }
+
+            if (qty > 0 && entryPrice > 0 && !existingManualActiveSymbols.has(symbol)) {
                  newTrades.push({ 
                      symbol: symbol,
                      type: defaultType,
@@ -91,25 +159,37 @@ export default function Networth() {
                        priorRally: false, tightBase: false, breakoutLevel: false,
                        volumeConfirmation: false, emaAlignment: false, relativeStrength: false
                      },
-                     notes: 'Imported dynamically from Broker Holdings Statement.',
+                    notes: IMPORTED_HOLDINGS_NOTE,
                      mistakes: []
                  });
             }
         }
-        
-        if (newTrades.length > 0) {
-            addTrades(newTrades as any);
-            alert(`Successfully imported ${newTrades.length} new trades to dashboard!`);
-        } else {
-            alert('No new holdings found, or all symbols are already active in your dashboard.');
+
+        const res = await fetch('/api/holdings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ holdings: parsedHoldings }),
+        });
+        const holdingsBody = (await res.json().catch(() => null)) as
+          | { error?: string; master?: NetworthMasterPayload }
+          | null;
+        if (!res.ok) {
+          throw new Error(holdingsBody?.error ?? 'Failed to save holdings to server.');
         }
+        if (holdingsBody?.master) {
+          queryClient.setQueryData(['networth-master'], holdingsBody.master);
+        } else {
+          await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
+        }
+
+        await replaceImportedHoldings(newTrades as any);
+        alert(`Holdings replaced successfully. Uploaded ${parsedHoldings.length} rows.`);
         
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err: any) {
         setError(err.message || 'Error parsing file.');
       }
-    };
-    reader.readAsBinaryString(file);
+    })();
   };
 
   const activeTrades = trades.filter((t) => t.status === 'Active');
@@ -130,14 +210,14 @@ export default function Networth() {
     (sum, t) => sum + t.positionSize * markPriceForTrade(t, livePriceBySymbol),
     0,
   );
-  const stocksUnrealized = stocksPresent - stocksInvested;
   const brokerMarginUsed =
     typeof settings?.brokerMarginUsed === 'number' && Number.isFinite(settings.brokerMarginUsed)
       ? settings.brokerMarginUsed
       : 0;
-  const actualInvestedCapital = Math.max(0, stocksInvested - brokerMarginUsed);
-  const stocksUnrealizedPct =
-    actualInvestedCapital > 0 ? (stocksUnrealized / actualInvestedCapital) * 100 : 0;
+
+  const currentHoldingValueMaster = Number(master?.currentHoldingValue ?? 0);
+  const unrealisedPnlMaster = Number(master?.unrealisedPnl ?? 0);
+  const unrealisedPnlPctMaster = Number(master?.unrealisedPnlPct ?? 0);
 
   const grossTotalValue = manualAssetsValue + stocksPresent;
   const totalValue = grossTotalValue - brokerMarginUsed;
@@ -196,26 +276,70 @@ export default function Networth() {
           <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4">Stocks & Active Trading Segment</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Invested Value</div>
-              <div className="text-lg font-bold">{formatInr(stocksInvested)}</div>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Present Value</div>
-              <div className="text-lg font-bold">{formatInr(stocksPresent)}</div>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Unrealized P&L</div>
-              <div className={`text-lg font-bold ${stocksUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {formatInr(stocksUnrealized)}
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
+                total_invested
+                <InfoHint text="Gross cost of holdings (sum of quantity × average price) at last upload. Source: user_networth_master.total_invested via /api/networth/master." />
+              </div>
+              <div className="text-lg font-bold flex items-center gap-2">
+                {networthMasterQuery.isPending && master === undefined ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                ) : (
+                  formatInr(Number(master?.totalInvested ?? 0))
+                )}
               </div>
             </div>
             <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">
-                Unrealized % (on invested - margin)
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                current_holding_value
               </div>
-              <div className={`text-lg font-bold ${stocksUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {stocksUnrealizedPct.toFixed(2)}%
+              <div className="text-lg font-bold flex items-center gap-2">
+                {networthMasterQuery.isPending && master === undefined ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                ) : (
+                  formatInr(currentHoldingValueMaster)
+                )}
               </div>
+              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                Σ qty × prev close from last upload (same row as DB).
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                unrealised_pnl
+              </div>
+              <div
+                className={`text-lg font-bold flex items-center gap-2 ${
+                  unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {networthMasterQuery.isPending && master === undefined ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                ) : (
+                  formatInr(unrealisedPnlMaster)
+                )}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                current_holding_value − total_invested (stored on upload / margin recompute).
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                unrealised_pnl_pct
+              </div>
+              <div
+                className={`text-lg font-bold flex items-center gap-2 ${
+                  unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {networthMasterQuery.isPending && master === undefined ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                ) : (
+                  `${unrealisedPnlPctMaster.toFixed(2)}%`
+                )}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                vs gross cost basis (total_invested), from master row.
+              </p>
             </div>
           </div>
         </div>
@@ -236,11 +360,12 @@ export default function Networth() {
                 type="number"
                 min={0}
                 value={brokerMarginUsed}
-                onChange={(e) => {
+                onChange={async (e) => {
                   const next = Number(e.target.value);
-                  updateSettings({
+                  await updateSettings({
                     brokerMarginUsed: Number.isFinite(next) && next > 0 ? next : 0,
                   });
+                  await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
                 }}
                 className="w-full bg-transparent outline-none font-bold text-lg"
                 placeholder="0"
@@ -303,7 +428,7 @@ export default function Networth() {
           {settings.networthAssets?.map(asset => {
               return (
                   <div key={asset.id} className="flex gap-4 items-center p-3 rounded-2xl border bg-[#0a0a0b] border-white/5">
-                    <div className="flex-[2] flex items-center gap-2 pl-2">
+                    <div className="flex-2 flex items-center gap-2 pl-2">
                         <input
                           type="text"
                           value={asset.name}
@@ -312,7 +437,7 @@ export default function Networth() {
                           placeholder="Asset Name (e.g. PPF, Bank)"
                         />
                     </div>
-                    <div className="flex-[1] flex items-center gap-2">
+                    <div className="flex-1 flex items-center gap-2">
                       <span className="text-gray-500">₹</span>
                       <input
                         type="number"

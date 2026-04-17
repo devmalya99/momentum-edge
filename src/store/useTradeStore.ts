@@ -4,6 +4,30 @@ import { Rule, Trade, Settings, WatchlistItem, initDB } from '../db';
 // Use crypto.randomUUID for unique IDs
 const generateId = () => crypto.randomUUID();
 
+async function syncWatchlistItemToServer(item: WatchlistItem): Promise<void> {
+  try {
+    await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item }),
+    });
+  } catch {
+    /* keep local write; sync later */
+  }
+}
+
+async function deleteWatchlistItemFromServer(id: string): Promise<void> {
+  try {
+    await fetch('/api/watchlist', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+  } catch {
+    /* keep local delete; sync later */
+  }
+}
+
 interface TradeState {
   trades: Trade[];
   rules: Rule[];
@@ -15,6 +39,7 @@ interface TradeState {
   fetchData: () => Promise<void>;
   addTrade: (trade: Omit<Trade, 'id' | 'entryDate'>) => Promise<void>;
   addTrades: (tradesData: Omit<Trade, 'id' | 'entryDate'>[]) => Promise<void>;
+  replaceImportedHoldings: (tradesData: Omit<Trade, 'id' | 'entryDate'>[]) => Promise<void>;
   updateTrade: (id: string, updates: Partial<Trade>) => Promise<void>;
   deleteTrade: (id: string) => Promise<void>;
   
@@ -41,6 +66,12 @@ const DEFAULT_RULES: Omit<Rule, 'id'>[] = [
   { name: 'Market breadth strength (A/D)', category: 'Context', maxScore: 10, enabled: true },
 ];
 
+export const IMPORTED_HOLDINGS_NOTE = 'Imported from broker holdings upload.';
+
+export function isImportedHoldingTrade(trade: Trade): boolean {
+  return trade.notes === IMPORTED_HOLDINGS_NOTE;
+}
+
 export const useTradeStore = create<TradeState>((set, get) => ({
   trades: [],
   rules: [],
@@ -57,10 +88,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
   fetchData: async () => {
     const db = await initDB();
-    const trades = await db.getAll('trades');
+    let trades = await db.getAll('trades');
     let rules = await db.getAll('rules');
     let settings = await db.get('settings', 'global');
-    const watchlist = (await db.getAll('watchlist')).sort((a, b) => b.addedAt - a.addedAt);
+    let watchlist = (await db.getAll('watchlist')).sort((a, b) => b.addedAt - a.addedAt);
 
     if (rules.length === 0) {
       for (const r of DEFAULT_RULES) {
@@ -122,6 +153,100 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       }
     }
 
+    try {
+      const masterRes = await fetch('/api/networth/master', { cache: 'no-store' });
+      if (masterRes.ok) {
+        const masterPayload = (await masterRes.json()) as {
+          master?: { marginAmount?: number };
+        };
+        const serverMargin = Number(masterPayload.master?.marginAmount);
+        settings.brokerMarginUsed = Number.isFinite(serverMargin) && serverMargin > 0 ? serverMargin : 0;
+      }
+    } catch {
+      /* offline or unauthenticated */
+    }
+
+    try {
+      const res = await fetch('/api/holdings', { cache: 'no-store' });
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          holdings?: Array<{
+            symbol: string;
+            quantity: number;
+            average_price: number;
+            previous_close_price: number;
+          }>;
+        };
+        const serverRows = Array.isArray(payload.holdings) ? payload.holdings : [];
+        const defaultType = settings.tradeTypes?.[0]?.name || 'Buy & Forget';
+        const importedTrades: Trade[] = serverRows.map((row, idx) => ({
+          id: generateId(),
+          symbol: row.symbol,
+          type: defaultType,
+          entryPrice: Number(row.average_price) || 0,
+          currentPrice: Number(row.previous_close_price) || Number(row.average_price) || 0,
+          stopLoss: (Number(row.average_price) || 0) * 0.9,
+          positionSize: Number(row.quantity) || 0,
+          status: 'Active',
+          entryDate: Date.now() + idx,
+          ruleScores: {},
+          totalScore: 0,
+          maxPossibleScore: 0,
+          scorePercentage: 0,
+          verdict: 'B',
+          checklist: {
+            priorRally: false,
+            tightBase: false,
+            breakoutLevel: false,
+            volumeConfirmation: false,
+            emaAlignment: false,
+            relativeStrength: false,
+          },
+          notes: IMPORTED_HOLDINGS_NOTE,
+          mistakes: [],
+        }));
+
+        const retainedTrades = trades.filter((trade) => !isImportedHoldingTrade(trade));
+        trades = [...importedTrades, ...retainedTrades];
+      }
+    } catch {
+      /* offline or unauthenticated */
+    }
+
+    try {
+      const res = await fetch('/api/watchlist', { cache: 'no-store' });
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          watchlist?: Array<{
+            id: string;
+            symbol: string;
+            company_name: string;
+            added_at: number;
+          }>;
+        };
+
+        const serverRows = Array.isArray(payload.watchlist) ? payload.watchlist : [];
+        watchlist = serverRows
+          .map((row) => ({
+            id: String(row.id ?? ''),
+            symbol: String(row.symbol ?? ''),
+            companyName: String(row.company_name ?? ''),
+            addedAt: Number(row.added_at) || Date.now(),
+          }))
+          .filter((item) => item.id && item.symbol && item.companyName)
+          .sort((a, b) => b.addedAt - a.addedAt);
+
+        const tx = db.transaction('watchlist', 'readwrite');
+        await tx.store.clear();
+        for (const item of watchlist) {
+          await tx.store.put(item);
+        }
+        await tx.done;
+      }
+    } catch {
+      /* offline or unauthenticated */
+    }
+
     set({ 
       trades: trades.sort((a, b) => b.entryDate - a.entryDate), 
       rules, 
@@ -160,6 +285,22 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     set((state) => ({ 
       trades: [...newTrades, ...state.trades].sort((a, b) => b.entryDate - a.entryDate) 
     }));
+  },
+
+  replaceImportedHoldings: async (tradesData) => {
+    const baseTimestamp = Date.now();
+    const newTrades: Trade[] = tradesData.map((data, idx) => ({
+      ...data,
+      id: generateId(),
+      entryDate: baseTimestamp + idx,
+    }));
+
+    set((state) => {
+      const retained = state.trades.filter((trade) => !isImportedHoldingTrade(trade));
+      return {
+        trades: [...newTrades, ...retained].sort((a, b) => b.entryDate - a.entryDate),
+      };
+    });
   },
 
   updateTrade: async (id, updates) => {
@@ -213,6 +354,22 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const updatedSettings = { ...settings, ...updates };
     await db.put('settings', updatedSettings);
     set({ settings: updatedSettings });
+
+    if (updates.brokerMarginUsed !== undefined) {
+      const brokerMarginUsed =
+        Number.isFinite(updates.brokerMarginUsed) && updates.brokerMarginUsed > 0
+          ? updates.brokerMarginUsed
+          : 0;
+      try {
+        await fetch('/api/settings/margin-used', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ brokerMarginUsed }),
+        });
+      } catch {
+        /* keep local write; sync later */
+      }
+    }
   },
 
   addToWatchlist: async (item) => {
@@ -222,6 +379,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
     const next: WatchlistItem = { ...item, addedAt: Date.now() };
     await db.put('watchlist', next);
+    await syncWatchlistItemToServer(next);
     set((state) => ({
       watchlist: [next, ...state.watchlist].sort((a, b) => b.addedAt - a.addedAt),
     }));
@@ -230,6 +388,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   removeFromWatchlist: async (id) => {
     const db = await initDB();
     await db.delete('watchlist', id);
+    await deleteWatchlistItemFromServer(id);
     set((state) => ({
       watchlist: state.watchlist.filter((w) => w.id !== id),
     }));

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { QueryProvider } from '@/components/QueryProvider';
+import { AuthBootstrap } from '@/components/auth/AuthBootstrap';
 import { useTradeStore } from '@/store/useTradeStore';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -39,8 +39,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <QueryProvider>
+    <>
+      <AuthBootstrap />
       <Layout>{children}</Layout>
-    </QueryProvider>
+    </>
   );
 }

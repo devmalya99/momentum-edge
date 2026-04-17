@@ -1,0 +1,210 @@
+import { getNeonSql } from '@/lib/db/ad-ratio';
+import { listUserHoldings } from '@/lib/db/holdings';
+import { ensureUsersTable } from '@/lib/db/users';
+
+export type UserNetworthMaster = {
+  /** Gross cost of holdings: Σ (qty × average price). Margin is stored separately. */
+  totalInvested: number;
+  currentHoldingValue: number;
+  unrealisedPnl: number;
+  unrealisedPnlPct: number;
+  bankBalance: number;
+  ppfAmount: number;
+  liquidFundInvestment: number;
+  fixedDeposit: number;
+  totalDebt: number;
+  networth: number;
+  monthlySalary: number;
+  marginAmount: number;
+  totalCreditCardDue: number;
+};
+
+type UserNetworthMasterRow = {
+  total_invested: number;
+  current_holding_value: number;
+  unrealised_pnl: number;
+  unrealised_pnl_pct: number;
+  bank_balance: number;
+  ppf_amount: number;
+  liquid_fund_investment: number;
+  fixed_deposit: number;
+  total_debt: number;
+  networth: number;
+  monthly_salary: number;
+  margin_amount: number;
+  total_credit_card_due: number;
+};
+
+const DEFAULT_MASTER: UserNetworthMaster = {
+  totalInvested: 0,
+  currentHoldingValue: 0,
+  unrealisedPnl: 0,
+  unrealisedPnlPct: 0,
+  bankBalance: 0,
+  ppfAmount: 0,
+  liquidFundInvestment: 0,
+  fixedDeposit: 0,
+  totalDebt: 0,
+  networth: 0,
+  monthlySalary: 0,
+  marginAmount: 0,
+  totalCreditCardDue: 0,
+};
+
+function mapRow(row: UserNetworthMasterRow | undefined): UserNetworthMaster {
+  if (!row) return DEFAULT_MASTER;
+  return {
+    totalInvested: Number(row.total_invested) || 0,
+    currentHoldingValue: Number(row.current_holding_value) || 0,
+    unrealisedPnl: Number(row.unrealised_pnl) || 0,
+    unrealisedPnlPct: Number(row.unrealised_pnl_pct) || 0,
+    bankBalance: Number(row.bank_balance) || 0,
+    ppfAmount: Number(row.ppf_amount) || 0,
+    liquidFundInvestment: Number(row.liquid_fund_investment) || 0,
+    fixedDeposit: Number(row.fixed_deposit) || 0,
+    totalDebt: Number(row.total_debt) || 0,
+    networth: Number(row.networth) || 0,
+    monthlySalary: Number(row.monthly_salary) || 0,
+    marginAmount: Number(row.margin_amount) || 0,
+    totalCreditCardDue: Number(row.total_credit_card_due) || 0,
+  };
+}
+
+/** Legacy DBs used `actual_invested` (net of margin). Rename and backfill to gross `total_invested`. */
+async function migrateActualInvestedToTotalInvestedColumn(): Promise<void> {
+  const sql = getNeonSql();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'user_networth_master'
+          AND column_name = 'actual_invested'
+      ) THEN
+        ALTER TABLE user_networth_master RENAME COLUMN actual_invested TO total_invested;
+        UPDATE user_networth_master
+        SET total_invested = total_invested + COALESCE(margin_amount, 0);
+      END IF;
+    END;
+    $$;
+  `;
+}
+
+export async function ensureUserNetworthMasterTable(): Promise<void> {
+  await ensureUsersTable();
+  const sql = getNeonSql();
+  await sql`
+    CREATE TABLE IF NOT EXISTS user_networth_master (
+      user_id text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      total_invested double precision NOT NULL DEFAULT 0,
+      current_holding_value double precision NOT NULL DEFAULT 0,
+      unrealised_pnl double precision NOT NULL DEFAULT 0,
+      unrealised_pnl_pct double precision NOT NULL DEFAULT 0,
+      bank_balance double precision NOT NULL DEFAULT 0,
+      ppf_amount double precision NOT NULL DEFAULT 0,
+      liquid_fund_investment double precision NOT NULL DEFAULT 0,
+      fixed_deposit double precision NOT NULL DEFAULT 0,
+      total_debt double precision NOT NULL DEFAULT 0,
+      networth double precision NOT NULL DEFAULT 0,
+      monthly_salary double precision NOT NULL DEFAULT 0,
+      margin_amount double precision NOT NULL DEFAULT 0,
+      total_credit_card_due double precision NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await migrateActualInvestedToTotalInvestedColumn();
+}
+
+export async function ensureUserNetworthMasterRow(userId: string): Promise<void> {
+  await ensureUserNetworthMasterTable();
+  const sql = getNeonSql();
+  await sql`
+    INSERT INTO user_networth_master (user_id)
+    VALUES (${userId})
+    ON CONFLICT (user_id) DO NOTHING
+  `;
+}
+
+export async function getUserNetworthMaster(userId: string): Promise<UserNetworthMaster> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  const rows = await sql`
+    SELECT
+      total_invested,
+      current_holding_value,
+      unrealised_pnl,
+      unrealised_pnl_pct,
+      bank_balance,
+      ppf_amount,
+      liquid_fund_investment,
+      fixed_deposit,
+      total_debt,
+      networth,
+      monthly_salary,
+      margin_amount,
+      total_credit_card_due
+    FROM user_networth_master
+    WHERE user_id = ${userId}
+    LIMIT 1
+  `;
+  return mapRow(rows[0] as UserNetworthMasterRow | undefined);
+}
+
+export async function updateMarginAmount(userId: string, marginAmount: number): Promise<void> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  await sql`
+    UPDATE user_networth_master
+    SET
+      margin_amount = ${marginAmount},
+      updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * Persists margin, then recomputes total_invested / unrealised_* from user_holdings
+ * so master stays correct after margin changes.
+ */
+export async function updateMarginAmountAndRecomputeFromHoldings(
+  userId: string,
+  marginAmount: number,
+): Promise<UserNetworthMaster> {
+  await updateMarginAmount(userId, marginAmount);
+  const rows = await listUserHoldings(userId);
+  const investedGross = rows.reduce(
+    (sum, r) => sum + Number(r.quantity) * Number(r.average_price),
+    0,
+  );
+  const currentHoldingValue = rows.reduce(
+    (sum, r) => sum + Number(r.quantity) * Number(r.previous_close_price),
+    0,
+  );
+  return updateComputedFromHoldings(userId, { investedGross, currentHoldingValue });
+}
+
+export async function updateComputedFromHoldings(
+  userId: string,
+  input: { investedGross: number; currentHoldingValue: number },
+): Promise<UserNetworthMaster> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  await sql`
+    UPDATE user_networth_master
+    SET
+      total_invested = GREATEST(0, ${input.investedGross}),
+      current_holding_value = ${input.currentHoldingValue},
+      unrealised_pnl = ${input.currentHoldingValue} - GREATEST(0, ${input.investedGross}),
+      unrealised_pnl_pct = CASE
+        WHEN GREATEST(0, ${input.investedGross}) > 0
+        THEN ((${input.currentHoldingValue} - GREATEST(0, ${input.investedGross}))
+          / GREATEST(0, ${input.investedGross})) * 100
+        ELSE 0
+      END,
+      updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return getUserNetworthMaster(userId);
+}

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   PlusCircle,
@@ -15,10 +15,14 @@ import {
   Globe,
   ScanSearch,
   Bookmark,
+  Calculator,
+  UserCircle2,
+  LogOut,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useAuthStore } from '@/store/useAuthStore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -37,12 +41,17 @@ const NAV_ITEMS = [
   { id: 'market-view', label: 'Market View', icon: Globe, href: '/market-view' },
   { id: '52h-scanner', label: '52 H Scanner', icon: ScanSearch, href: '/52w-scanner' },
   { id: 'watchlist', label: 'Watchlist', icon: Bookmark, href: '/watchlist' },
+  { id: 'mtf-checker', label: 'MTF Checker', icon: Calculator, href: '/mtf-checker' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
+  { id: 'profile', label: 'My Profile', icon: UserCircle2, href: '/profile' },
 ] as const;
 
 export default function Layout({ children }: LayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const pathname = usePathname();
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const logoutLocal = useAuthStore((s) => s.logoutLocal);
 
   const wideContent =
     pathname === '/stock-charts' || pathname === '/52w-scanner' || pathname === '/watchlist';
@@ -118,15 +127,32 @@ export default function Layout({ children }: LayoutProps) {
               )}
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xs font-bold">
-                DM
+                {user?.name?.slice(0, 2).toUpperCase() || 'ME'}
               </div>
               {isSidebarOpen && (
                 <div className="flex flex-col overflow-hidden">
-                  <span className="text-xs font-medium truncate">Debmalyamazumdar</span>
-                  <span className="text-[10px] text-gray-500 truncate">Pro Trader</span>
+                  <span className="text-xs font-medium truncate">{user?.name || 'Trader'}</span>
+                  <span className="text-[10px] text-gray-500 truncate">
+                    {user?.tradingExperience || user?.email || 'Momentum Member'}
+                  </span>
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              className={cn(
+                'mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-gray-300 transition hover:border-cyan-300/30 hover:text-cyan-200',
+                isSidebarOpen ? 'justify-start' : 'justify-center',
+              )}
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                logoutLocal();
+                router.push('/login');
+              }}
+            >
+              <LogOut size={16} />
+              {isSidebarOpen && <span>Logout</span>}
+            </button>
           </div>
         </div>
       </aside>
