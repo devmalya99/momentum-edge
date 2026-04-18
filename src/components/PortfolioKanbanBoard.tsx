@@ -69,15 +69,15 @@ function KanbanTradeRow(props: {
       }}
       onDragOver={onDragOverRow}
       onDrop={(e) => onDropOnRow(e, columnName)}
-      className={`relative flex gap-3 rounded-[20px] border border-transparent transition-all duration-300 ${
-        isDragging ? 'opacity-40 scale-95' : 'opacity-100 hover:-translate-y-1'
+      className={`relative flex gap-2 rounded-xl border border-transparent transition-all duration-300 ${
+        isDragging ? 'opacity-40 scale-[0.98]' : 'opacity-100 hover:-translate-y-0.5'
       } ${disabled ? 'pointer-events-none' : 'cursor-grab active:cursor-grabbing'}`}
     >
       <div
-        className="pointer-events-none mt-1 flex h-[80px] w-8 shrink-0 flex-col items-center justify-center rounded-[16px] border border-white/5 bg-linear-to-b from-[#1c1c21] to-[#121215] text-gray-500 shadow-inner shadow-black/40 transition-colors group-hover:border-white/10"
+        className="pointer-events-none mt-0.5 flex min-h-[4.5rem] w-6 shrink-0 flex-col items-center justify-center self-stretch rounded-lg border border-white/5 bg-linear-to-b from-[#1c1c21] to-[#121215] text-gray-500 shadow-inner shadow-black/40 transition-colors group-hover:border-white/10"
         aria-hidden
       >
-        <GripVertical size={14} strokeWidth={2.5} className="opacity-60" />
+        <GripVertical size={12} strokeWidth={2.5} className="opacity-60" />
       </div>
       <div
         className="min-w-0 flex-1"
@@ -161,7 +161,7 @@ function KanbanColumn(props: {
 
   return (
     <div
-      className={`flex min-w-[320px] max-w-[380px] flex-1 flex-col rounded-[24px] border border-white/5 bg-linear-to-b from-[#141417] to-[#0a0a0c] shadow-2xl shadow-black/80 ring-1 ring-inset ring-white/5 transition-all duration-300 ${
+      className={`flex w-[min(100%,280px)] min-w-[240px] max-w-[280px] shrink-0 snap-start flex-col rounded-2xl border border-white/5 bg-linear-to-b from-[#141417] to-[#0a0a0c] shadow-xl shadow-black/60 ring-1 ring-inset ring-white/5 transition-all duration-300 ${
         isOver ? 'border-sky-500/50 bg-linear-to-b from-[#0c1622] to-[#0a0a0c] ring-sky-500/20 scale-[1.01]' : 'hover:border-white/10'
       }`}
       onDragEnter={(e) => {
@@ -174,7 +174,7 @@ function KanbanColumn(props: {
       onDrop={(e) => onDropOnColumn(e, column.name)}
     >
       <div
-        className="border-b border-white/5 bg-[#1a1a1e]/40 px-5 py-4 rounded-t-[24px] backdrop-blur-sm"
+        className="rounded-t-2xl border-b border-white/5 bg-[#1a1a1e]/40 px-3 py-2.5 backdrop-blur-sm"
         onDragEnter={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'move';
@@ -193,7 +193,7 @@ function KanbanColumn(props: {
             </span>
           )}
         </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] font-bold text-gray-500">
+        <div className="mt-1 flex items-center justify-between text-[10px] font-bold text-gray-500">
           <span>{trades.length} position{trades.length === 1 ? '' : 's'}</span>
           {columnAllocation > 0 && (
             <span className="text-gray-400">₹{columnAllocation.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
@@ -201,7 +201,7 @@ function KanbanColumn(props: {
         </div>
       </div>
       <div
-        className={`flex min-h-[240px] flex-1 flex-col gap-4 p-4 transition-colors rounded-b-[24px] ${
+        className={`flex min-h-[160px] flex-1 flex-col gap-2 rounded-b-2xl p-2.5 transition-colors ${
           isOver ? 'bg-sky-500/5' : 'bg-transparent'
         }`}
         onDragEnter={(e) => {
@@ -393,15 +393,15 @@ export default function PortfolioKanbanBoard({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-[14px] bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-inner shadow-blue-500/10">
-            <LayoutGrid size={20} strokeWidth={2.5} />
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-400 shadow-inner shadow-blue-500/10">
+            <LayoutGrid size={18} strokeWidth={2.5} />
           </div>
           <div>
-            <h2 className="text-lg font-black uppercase tracking-widest text-white drop-shadow-md">Portfolio Board</h2>
-            <p className="text-[10px] font-bold tracking-wider text-gray-500 uppercase mt-0.5">Drag & Drop Trading System</p>
+            <h2 className="text-base font-black uppercase tracking-widest text-white drop-shadow-md">Portfolio Board</h2>
+            <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-500">Drag & drop by column</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -452,7 +452,7 @@ export default function PortfolioKanbanBoard({
       </div>
 
       <div
-        className="flex gap-5 overflow-x-auto pb-4 pt-2 px-1 scroll-smooth snap-x"
+        className="flex gap-3 overflow-x-auto px-0.5 pb-3 pt-1 scroll-smooth snap-x snap-mandatory"
         onDragOver={(e) => e.preventDefault()}
       >
         {columns.map((col) => (

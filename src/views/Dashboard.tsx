@@ -455,7 +455,7 @@ export default function Dashboard() {
       ) : (
         <div className="space-y-10">
           {portfolioLayout !== 'table' ? (
-            <div className="rounded-3xl border border-white/5 bg-[#161618] p-6">
+            <div className="rounded-3xl border border-white/5 bg-[#161618] p-4 sm:p-5">
               <PortfolioKanbanBoard
                 trades={kanbanDisplayTrades}
                 tradeTypes={settings.tradeTypes ?? []}
