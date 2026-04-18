@@ -27,6 +27,8 @@ export type DistributionBarPoint = {
   idx: number;
   pnl: number;
   label?: string;
+  pnlPct?: number;
+  totalTradeValue?: number;
 };
 
 /** Ascending PnL: largest losses left, largest profits right. */
@@ -37,6 +39,11 @@ export function buildDistributionBars(trades: PnlChartTrade[]): DistributionBarP
     idx: i + 1,
     pnl: t.pnl,
     label: t.label,
+    pnlPct: typeof t.pnlPct === 'number' && Number.isFinite(t.pnlPct) ? t.pnlPct : undefined,
+    totalTradeValue:
+      typeof t.totalTradeValue === 'number' && Number.isFinite(t.totalTradeValue)
+        ? t.totalTradeValue
+        : undefined,
   }));
 }
 

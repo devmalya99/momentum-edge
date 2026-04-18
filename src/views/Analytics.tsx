@@ -15,6 +15,7 @@ import {
   Shield,
   Scale,
   GitBranch,
+  Landmark,
 } from 'lucide-react';
 import { parsePnlXlsxBufferToIndexedRecord } from '@/analytics/pnlXlsxToIndexedRecord';
 import { saveAnalyticsPnlUpload } from '@/db/traderAnalyticsDb';
@@ -25,6 +26,7 @@ import {
   useAnalyticsPnlStore,
 } from '@/store/useAnalyticsPnlStore';
 import { formatInr } from '@/lib/format-inr';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import EquityCurveChart from '@/components/trader-analytics/EquityCurveChart';
 import TradePnlPctDistributionChart from '@/components/trader-analytics/TradePnlPctDistributionChart';
 
@@ -51,15 +53,61 @@ function formatPct(n: number | null, digits = 1): string {
   return `${n.toFixed(digits)}%`;
 }
 
+type NetworthMasterSnapshot = {
+  currentHoldingValue: number;
+  marginAmount: number;
+  realInvestFromBank: number;
+};
+
 export default function Analytics() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
 
+  const queryClient = useQueryClient();
   const record = useAnalyticsPnlStore((s) => s.record);
   const hydrate = useAnalyticsPnlStore((s) => s.hydrate);
   const setRecord = useAnalyticsPnlStore((s) => s.setRecord);
+
+  const networthMasterQuery = useQuery({
+    queryKey: ['networth-master'],
+    queryFn: async (): Promise<NetworthMasterSnapshot | null> => {
+      const res = await fetch('/api/networth/master', { cache: 'no-store' });
+      if (res.status === 401) return null;
+      if (!res.ok) throw new Error('Failed to load networth master');
+      const body = (await res.json()) as { master: NetworthMasterSnapshot };
+      return body.master;
+    },
+    retry: 1,
+  });
+
+  const [bankInput, setBankInput] = useState('');
+  useEffect(() => {
+    const m = networthMasterQuery.data;
+    if (m === null || m === undefined) return;
+    setBankInput(m.realInvestFromBank > 0 ? String(m.realInvestFromBank) : '');
+  }, [networthMasterQuery.data?.realInvestFromBank]);
+
+  const saveBankInvestMutation = useMutation({
+    mutationFn: async (realInvestFromBank: number) => {
+      const res = await fetch('/api/networth/real-invest-from-bank', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ realInvestFromBank }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { error?: string; ok?: boolean; master?: NetworthMasterSnapshot }
+        | null;
+      if (!res.ok) {
+        throw new Error(body?.error ?? 'Failed to save');
+      }
+      if (!body?.ok) throw new Error('Invalid server response');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['networth-master'] });
+    },
+  });
 
   useEffect(() => {
     void hydrate();
@@ -69,6 +117,23 @@ export default function Analytics() {
   const quality =
     record && overview ? computeAnalyticsQualityMetrics(record, overview) : null;
   const sum = record?.pnl_summary;
+
+  const master = networthMasterQuery.data;
+  const currentHolding = master ? Number(master.currentHoldingValue) || 0 : 0;
+  const marginAmt = master ? Number(master.marginAmount) || 0 : 0;
+  const bankSaved = master ? Number(master.realInvestFromBank) || 0 : 0;
+  const draftBank = (() => {
+    const n = parseFloat(bankInput);
+    return Number.isFinite(n) && n >= 0 ? n : bankSaved;
+  })();
+  const realReturnLifeTimeSaved =
+    master !== null && master !== undefined ? currentHolding - marginAmt - bankSaved : null;
+  const realReturnLifeTimePreview =
+    master !== null && master !== undefined ? currentHolding - marginAmt - draftBank : null;
+  const bankInputDirty =
+    master !== null &&
+    master !== undefined &&
+    bankInput.trim() !== (master.realInvestFromBank > 0 ? String(master.realInvestFromBank) : '');
 
   const chartTrades = useMemo(
     () =>
@@ -131,6 +196,108 @@ export default function Analytics() {
           session via the local store. Open the console to inspect compact sheet rows.
         </p>
       </div>
+
+      <section className="p-8 rounded-3xl bg-violet-600/5 border border-violet-500/15 space-y-6">
+        <div className="flex items-center gap-2">
+          <Landmark className="text-violet-400" size={22} />
+          <h2 className="text-lg font-semibold tracking-tight">Bank capital &amp; true market profit</h2>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Enter the <span className="text-gray-400">net</span> amount you have transferred from your bank into
+          this trading account over time (cash in, ignoring paper margin). We store it as{' '}
+          <span className="font-mono text-gray-400">real_invest_from_bank</span> on the server. Lifetime true
+          return uses your uploaded holdings value and broker margin from the Networth flow:{' '}
+          <span className="font-mono text-gray-400">current_holding_value − margin_amount − real_invest_from_bank</span>.
+        </p>
+
+        {networthMasterQuery.isPending ? (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+            Loading networth data…
+          </div>
+        ) : master === null ? (
+          <p className="text-sm text-gray-500">Sign in to save bank transfers and see lifetime return.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  real_invest_from_bank (₹)
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">₹</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={bankInput}
+                    onChange={(e) => setBankInput(e.target.value)}
+                    disabled={saveBankInvestMutation.isPending}
+                    className="w-full bg-transparent outline-none font-bold text-lg"
+                    placeholder="0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={saveBankInvestMutation.isPending || !bankInputDirty}
+                  onClick={() => {
+                    const n = parseFloat(bankInput);
+                    const v = Number.isFinite(n) && n >= 0 ? n : 0;
+                    void saveBankInvestMutation.mutateAsync(v);
+                  }}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider"
+                >
+                  {saveBankInvestMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : null}
+                  Save to server
+                </button>
+                {saveBankInvestMutation.isError ? (
+                  <p className="text-xs text-red-400">{saveBankInvestMutation.error.message}</p>
+                ) : null}
+              </div>
+              <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5 ring-1 ring-white/10 space-y-3">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                  real_return_life_time (saved)
+                </div>
+                <div
+                  className={`text-2xl font-bold tabular-nums ${
+                    realReturnLifeTimeSaved === null
+                      ? 'text-gray-400'
+                      : realReturnLifeTimeSaved >= 0
+                        ? 'text-emerald-400'
+                        : 'text-red-400'
+                  }`}
+                >
+                  {realReturnLifeTimeSaved === null ? '—' : formatInr(realReturnLifeTimeSaved)}
+                </div>
+                <div className="text-[11px] text-gray-600 space-y-1 font-mono tabular-nums leading-relaxed">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">current_holding_value</span>
+                    <span>{formatInr(currentHolding)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">− margin_amount</span>
+                    <span>−{formatInr(marginAmt)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">− real_invest_from_bank</span>
+                    <span>−{formatInr(bankSaved)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {bankInputDirty && realReturnLifeTimePreview !== null ? (
+              <p className="text-[11px] text-gray-500">
+                Preview with unsaved input:{' '}
+                <span className={signedClass(realReturnLifeTimePreview)}>
+                  {formatInr(realReturnLifeTimePreview)}
+                </span>
+              </p>
+            ) : null}
+          </>
+        )}
+      </section>
 
       {overview && (
         <section className="p-8 rounded-3xl bg-emerald-600/5 border border-emerald-500/15 space-y-6">
@@ -216,12 +383,12 @@ export default function Analytics() {
       {chartTrades.length > 0 && (
         <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">Realized return per symbol (sorted)</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Realized P&amp;L per symbol (sorted)</h2>
             <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
-              One bar per symbol row, ordered from <span className="text-gray-400">lowest</span> to{' '}
-              <span className="text-gray-400">highest</span> workbook{' '}
-              <span className="text-gray-400">realised_pnl_pct</span> (e.g. −8%, −5%, 4%, 12%). Bars extend
-              below zero for losses. Hover a bar for symbol, rupee P&amp;L, return %, and total trade value.
+              One bar per symbol row, ordered from <span className="text-gray-400">largest loss</span> to{' '}
+              <span className="text-gray-400">largest profit</span> by{' '}
+              <span className="text-gray-400">realised_pnl</span> (rupees). Bar height is rupee P&amp;L; hover
+              still shows return % and total trade value when present in the file.
             </p>
           </div>
           <div className="w-full min-h-[320px] min-w-0">

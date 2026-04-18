@@ -1,10 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { IMPORTED_HOLDINGS_NOTE, isImportedHoldingTrade, useTradeStore } from '../store/useTradeStore';
 import { PieChart, Plus, Trash2, Upload, Activity, ShieldAlert, Loader2, Info } from 'lucide-react';
 import * as xlsx from 'xlsx';
 import { markPriceForTrade, useActiveTradeLivePrices } from '@/hooks/useActiveTradeLivePrices';
 import { formatInr } from '@/lib/format-inr';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 type NetworthMasterPayload = {
   totalInvested: number;
@@ -12,6 +12,11 @@ type NetworthMasterPayload = {
   unrealisedPnl: number;
   unrealisedPnlPct: number;
   marginAmount: number;
+  realInvestFromBank: number;
+  ppfAmount: number;
+  liquidFundInvestment: number;
+  totalCreditCardDue: number;
+  receivables?: number;
 };
 
 function InfoHint({ text }: { text: string }) {
@@ -53,6 +58,52 @@ export default function Networth() {
   const [error, setError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importStep, setImportStep] = useState<'uploading' | 'replacing' | 'rendering' | null>(null);
+  const [duePayablesInput, setDuePayablesInput] = useState('');
+  const [ppfInput, setPpfInput] = useState('');
+  const [liquidFundInput, setLiquidFundInput] = useState('');
+  const [receivablesInput, setReceivablesInput] = useState('');
+
+  useEffect(() => {
+    if (!master) return;
+    setDuePayablesInput(
+      master.totalCreditCardDue > 0 ? String(master.totalCreditCardDue) : '',
+    );
+    setPpfInput(master.ppfAmount > 0 ? String(master.ppfAmount) : '');
+    setLiquidFundInput(
+      master.liquidFundInvestment > 0 ? String(master.liquidFundInvestment) : '',
+    );
+    setReceivablesInput(
+      Number(master.receivables) > 0 ? String(Number(master.receivables)) : '',
+    );
+  }, [
+    master?.totalCreditCardDue,
+    master?.ppfAmount,
+    master?.liquidFundInvestment,
+    master?.receivables,
+  ]);
+
+  const financialFieldMutation = useMutation({
+    mutationFn: async (payload: {
+      field: 'duePayables' | 'receivables' | 'ppf' | 'liquidFund';
+      value: number;
+    }) => {
+      const res = await fetch('/api/networth/master/financials', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string; master?: NetworthMasterPayload }
+        | null;
+      if (!res.ok || !body?.ok || !body.master) {
+        throw new Error(body?.error ?? 'Failed to save field');
+      }
+      return body.master;
+    },
+    onSuccess: (nextMaster) => {
+      queryClient.setQueryData(['networth-master'], nextMaster);
+    },
+  });
 
   const addNetworthAsset = () => {
     const newAsset = { id: crypto.randomUUID(), name: 'New Asset', value: 0 };
@@ -216,6 +267,9 @@ export default function Networth() {
     return assets.reduce((sum, asset) => {
       const name = (asset.name || '').trim().toLowerCase();
       if (hasActiveEquity && name === 'stocks') return sum;
+      // PPF/Liquid Fund now come from dedicated server-synced inputs below.
+      if (name === 'ppf' || name === 'liquid fund' || name === 'liquid_fund') return sum;
+      if (name === 'receivables' || name === 'receivable') return sum;
       return sum + (Number(asset.value) || 0);
     }, 0);
   }, [settings?.networthAssets, hasActiveEquity]);
@@ -233,9 +287,34 @@ export default function Networth() {
   const currentHoldingValueMaster = Number(master?.currentHoldingValue ?? 0);
   const unrealisedPnlMaster = Number(master?.unrealisedPnl ?? 0);
   const unrealisedPnlPctMaster = Number(master?.unrealisedPnlPct ?? 0);
+  const totalInvestedGross = Number(master?.totalInvested ?? 0);
+  const marginForBasis = Math.max(
+    brokerMarginUsed,
+    Number.isFinite(Number(master?.marginAmount)) ? Number(master?.marginAmount) : 0,
+  );
+  const ownCapitalInvested = Math.max(0, totalInvestedGross - marginForBasis);
+  const pnlPctOnOwnCapital =
+    ownCapitalInvested > 0 ? (unrealisedPnlMaster / ownCapitalInvested) * 100 : 0;
+  const returnVsOwnCapital =
+    ownCapitalInvested > 0
+      ? ((currentHoldingValueMaster - ownCapitalInvested) / ownCapitalInvested) * 100
+      : 0;
 
+  const duePayablesSaved = Number(master?.totalCreditCardDue ?? 0);
+  const ppfSaved = Number(master?.ppfAmount ?? 0);
+  const liquidFundSaved = Number(master?.liquidFundInvestment ?? 0);
+  const receivablesSaved = Number(master?.receivables ?? 0);
   const grossTotalValue = manualAssetsValue + stocksPresent;
-  const totalValue = grossTotalValue - brokerMarginUsed;
+  const coreAssetsServer = ppfSaved + liquidFundSaved + receivablesSaved;
+  const totalLiabilities = brokerMarginUsed + duePayablesSaved;
+  const totalValue = grossTotalValue + coreAssetsServer - totalLiabilities;
+  const duePayablesDirty =
+    duePayablesInput.trim() !== (duePayablesSaved > 0 ? String(duePayablesSaved) : '');
+  const ppfDirty = ppfInput.trim() !== (ppfSaved > 0 ? String(ppfSaved) : '');
+  const liquidFundDirty =
+    liquidFundInput.trim() !== (liquidFundSaved > 0 ? String(liquidFundSaved) : '');
+  const receivablesDirty =
+    receivablesInput.trim() !== (receivablesSaved > 0 ? String(receivablesSaved) : '');
 
   const hasStocksManualRow =
     settings?.networthAssets?.some((a) => (a.name || '').trim().toLowerCase() === 'stocks') ?? false;
@@ -267,11 +346,27 @@ export default function Networth() {
               − {formatInr(brokerMarginUsed)} broker margin used
             </>
           ) : null}
+          {ppfSaved > 0 || liquidFundSaved > 0 || receivablesSaved > 0 ? (
+            <>
+              {' '}
+              + {formatInr(coreAssetsServer)} (ppf + liquid fund + receivables)
+            </>
+          ) : null}
+          {duePayablesSaved > 0 ? (
+            <>
+              {' '}
+              − {formatInr(duePayablesSaved)} due payables
+            </>
+          ) : null}
           {hasActiveEquity && hasStocksManualRow ? (
             <span className="block mt-1 text-[10px] text-gray-600">
               The &quot;Stocks&quot; manual row is excluded from the total while you have active trades, to avoid double-counting equity.
             </span>
           ) : null}
+          <span className="block mt-1 text-[10px] text-gray-600">
+            Actual networth = manual assets + active equity + (ppf + liquid fund + receivables) − (margin +
+            due payables).
+          </span>
         </div>
         {activeSymbols.length > 0 && quotesFetching ? (
           <div className="mt-2 flex items-center gap-2 text-xs text-blue-400/90">
@@ -287,74 +382,173 @@ export default function Networth() {
       </div>
 
       {stocksInvested > 0 && (
-        <div className="p-6 rounded-3xl bg-blue-600/5 border border-blue-500/10">
-          <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest mb-4">Stocks & Active Trading Segment</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
-                total_invested
-                <InfoHint text="Gross cost of holdings (sum of quantity × average price) at last upload. Source: user_networth_master.total_invested via /api/networth/master." />
-              </div>
-              <div className="text-lg font-bold flex items-center gap-2">
-                {networthMasterQuery.isPending && master === undefined ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
-                ) : (
-                  formatInr(Number(master?.totalInvested ?? 0))
-                )}
+        <div className="p-6 rounded-3xl bg-blue-600/5 border border-blue-500/10 space-y-6">
+          <div>
+            <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest">
+              Stocks & Active Trading Segment
+            </h2>
+            <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
+              Compare gross / margin-inclusive cost basis (left) with your own capital after subtracting broker
+              margin (right). Rupee P&amp;L is the same; percentages differ when margin is used.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-bold text-cyan-300/90 uppercase tracking-widest">
+                With margin · gross basis
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
+                    total_invested
+                    <InfoHint text="Gross cost of holdings (Σ qty × average price) at last upload — includes value funded with margin. Source: user_networth_master.total_invested." />
+                  </div>
+                  <div className="text-lg font-bold flex items-center gap-2">
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                    ) : (
+                      formatInr(totalInvestedGross)
+                    )}
+                  </div>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                    current_holding_value
+                  </div>
+                  <div className="text-lg font-bold flex items-center gap-2">
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                    ) : (
+                      formatInr(currentHoldingValueMaster)
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                    Σ qty × prev close from last upload (same row as DB).
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                    unrealised_pnl
+                  </div>
+                  <div
+                    className={`text-lg font-bold flex items-center gap-2 ${
+                      unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                    ) : (
+                      formatInr(unrealisedPnlMaster)
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                    current_holding_value − total_invested (stored on upload / margin recompute).
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                    unrealised_pnl_pct
+                  </div>
+                  <div
+                    className={`text-lg font-bold flex items-center gap-2 ${
+                      unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
+                    ) : (
+                      `${unrealisedPnlPctMaster.toFixed(2)}%`
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                    vs gross cost basis (total_invested), from master row.
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
-                current_holding_value
+
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-bold text-violet-300/90 uppercase tracking-widest">
+                Without margin · own capital
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
+                    actual_invested
+                    <InfoHint text="Your cash in the book: total_invested minus broker margin used (max of local setting and server margin_amount)." />
+                  </div>
+                  <div className="text-lg font-bold flex items-center gap-2">
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-violet-400 shrink-0" aria-hidden />
+                    ) : ownCapitalInvested <= 0 && marginForBasis > 0 ? (
+                      <span className="text-gray-500 text-base font-semibold">—</span>
+                    ) : (
+                      formatInr(ownCapitalInvested)
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                    total_invested − margin ({formatInr(marginForBasis)}).
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
+                    actual_profit
+                    <InfoHint text="Same absolute unrealised P&amp;L as gross view: current_holding_value − total_invested." />
+                  </div>
+                  <div
+                    className={`text-lg font-bold flex items-center gap-2 ${
+                      unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-violet-400 shrink-0" aria-hidden />
+                    ) : (
+                      formatInr(unrealisedPnlMaster)
+                    )}
+                  </div>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
+                    pnl_pct_on_own
+                  </div>
+                  <div
+                    className={`text-lg font-bold flex items-center gap-2 ${
+                      pnlPctOnOwnCapital >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-violet-400 shrink-0" aria-hidden />
+                    ) : ownCapitalInvested <= 0 ? (
+                      <span className="text-gray-500 text-base font-semibold">—</span>
+                    ) : (
+                      `${pnlPctOnOwnCapital.toFixed(2)}%`
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+                    unrealised_pnl ÷ actual_invested (return on cash you put in).
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
+                  <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono inline-flex items-center gap-1.5">
+                    return_vs_own
+                    <InfoHint text="Mark-to-market vs own capital: (current_holding_value − actual_invested) / actual_invested. Larger than P&amp;L% on own when part of the book was margin-funded." />
+                  </div>
+                  <div
+                    className={`text-lg font-bold flex items-center gap-2 ${
+                      returnVsOwnCapital >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}
+                  >
+                    {networthMasterQuery.isPending && master === undefined ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-violet-400 shrink-0" aria-hidden />
+                    ) : ownCapitalInvested <= 0 ? (
+                      <span className="text-gray-500 text-base font-semibold">—</span>
+                    ) : (
+                      `${returnVsOwnCapital.toFixed(2)}%`
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="text-lg font-bold flex items-center gap-2">
-                {networthMasterQuery.isPending && master === undefined ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
-                ) : (
-                  formatInr(currentHoldingValueMaster)
-                )}
-              </div>
-              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
-                Σ qty × prev close from last upload (same row as DB).
-              </p>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
-                unrealised_pnl
-              </div>
-              <div
-                className={`text-lg font-bold flex items-center gap-2 ${
-                  unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
-                }`}
-              >
-                {networthMasterQuery.isPending && master === undefined ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
-                ) : (
-                  formatInr(unrealisedPnlMaster)
-                )}
-              </div>
-              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
-                current_holding_value − total_invested (stored on upload / margin recompute).
-              </p>
-            </div>
-            <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
-              <div className="text-[10px] text-gray-500 font-bold uppercase mb-1 font-mono">
-                unrealised_pnl_pct
-              </div>
-              <div
-                className={`text-lg font-bold flex items-center gap-2 ${
-                  unrealisedPnlMaster >= 0 ? 'text-green-400' : 'text-red-400'
-                }`}
-              >
-                {networthMasterQuery.isPending && master === undefined ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-400 shrink-0" aria-hidden />
-                ) : (
-                  `${unrealisedPnlPctMaster.toFixed(2)}%`
-                )}
-              </div>
-              <p className="text-[10px] text-gray-600 mt-1 leading-snug">
-                vs gross cost basis (total_invested), from master row.
-              </p>
             </div>
           </div>
         </div>
@@ -395,11 +589,165 @@ export default function Networth() {
               Actual Networth Formula
             </div>
             <div className="text-sm text-gray-300 leading-relaxed">
-              {formatInr(grossTotalValue)} gross assets − {formatInr(brokerMarginUsed)} margin ={' '}
+              {formatInr(grossTotalValue)} gross assets + {formatInr(coreAssetsServer)} (ppf + liquid + receivables)
+              − {formatInr(totalLiabilities)} liabilities ={' '}
               <span className="font-black text-amber-400">{formatInr(totalValue)}</span>
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="p-6 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
+        <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest">
+          Server-Saved Core Assets
+        </h2>
+        <p className="text-[11px] text-gray-600 leading-relaxed">
+          These map directly to `user_networth_master` columns: due payables (what you owe) →
+          `total_credit_card_due`, receivables (what others owe you) → `receivables`, ppf → `ppf_amount`,
+          liquid fund → `liquid_fund_investment`.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              due_payables
+            </label>
+            <p className="text-[10px] text-gray-600">Amount you owe others (liability).</p>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">₹</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={duePayablesInput}
+                onChange={(e) => setDuePayablesInput(e.target.value)}
+                className="w-full bg-transparent outline-none font-bold text-lg"
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!duePayablesDirty || financialFieldMutation.isPending}
+              onClick={() => {
+                const n = parseFloat(duePayablesInput);
+                const v = Number.isFinite(n) && n >= 0 ? n : 0;
+                void financialFieldMutation.mutateAsync({ field: 'duePayables', value: v });
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 text-xs font-bold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-xl transition-all uppercase tracking-widest"
+            >
+              {financialFieldMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Save
+            </button>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              Receivables
+            </label>
+            <p className="text-[10px] text-gray-600">Money others owe you (asset).</p>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">₹</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={receivablesInput}
+                onChange={(e) => setReceivablesInput(e.target.value)}
+                className="w-full bg-transparent outline-none font-bold text-lg"
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!receivablesDirty || financialFieldMutation.isPending}
+              onClick={() => {
+                const n = parseFloat(receivablesInput);
+                const v = Number.isFinite(n) && n >= 0 ? n : 0;
+                void financialFieldMutation.mutateAsync({ field: 'receivables', value: v });
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 text-xs font-bold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-xl transition-all uppercase tracking-widest"
+            >
+              {financialFieldMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Save
+            </button>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              ppf
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">₹</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={ppfInput}
+                onChange={(e) => setPpfInput(e.target.value)}
+                className="w-full bg-transparent outline-none font-bold text-lg"
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!ppfDirty || financialFieldMutation.isPending}
+              onClick={() => {
+                const n = parseFloat(ppfInput);
+                const v = Number.isFinite(n) && n >= 0 ? n : 0;
+                void financialFieldMutation.mutateAsync({ field: 'ppf', value: v });
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 text-xs font-bold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-xl transition-all uppercase tracking-widest"
+            >
+              {financialFieldMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Save
+            </button>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              liquid_fund
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">₹</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={liquidFundInput}
+                onChange={(e) => setLiquidFundInput(e.target.value)}
+                className="w-full bg-transparent outline-none font-bold text-lg"
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!liquidFundDirty || financialFieldMutation.isPending}
+              onClick={() => {
+                const n = parseFloat(liquidFundInput);
+                const v = Number.isFinite(n) && n >= 0 ? n : 0;
+                void financialFieldMutation.mutateAsync({ field: 'liquidFund', value: v });
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 text-xs font-bold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-xl transition-all uppercase tracking-widest"
+            >
+              {financialFieldMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Save
+            </button>
+          </div>
+        </div>
+        {financialFieldMutation.isError ? (
+          <p className="text-xs text-red-400">
+            {financialFieldMutation.error instanceof Error
+              ? financialFieldMutation.error.message
+              : 'Failed to save'}
+          </p>
+        ) : null}
       </section>
 
       {error && (

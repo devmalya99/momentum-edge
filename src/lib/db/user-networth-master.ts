@@ -16,7 +16,11 @@ export type UserNetworthMaster = {
   networth: number;
   monthlySalary: number;
   marginAmount: number;
+  /** Lifetime net cash moved from bank into the trading account (user-entered, for true market profit). */
+  realInvestFromBank: number;
   totalCreditCardDue: number;
+  /** Money others owe you (user-entered). */
+  receivables: number;
 };
 
 type UserNetworthMasterRow = {
@@ -32,7 +36,9 @@ type UserNetworthMasterRow = {
   networth: number;
   monthly_salary: number;
   margin_amount: number;
+  real_invest_from_bank: number;
   total_credit_card_due: number;
+  receivables: number;
 };
 
 const DEFAULT_MASTER: UserNetworthMaster = {
@@ -48,7 +54,9 @@ const DEFAULT_MASTER: UserNetworthMaster = {
   networth: 0,
   monthlySalary: 0,
   marginAmount: 0,
+  realInvestFromBank: 0,
   totalCreditCardDue: 0,
+  receivables: 0,
 };
 
 function mapRow(row: UserNetworthMasterRow | undefined): UserNetworthMaster {
@@ -66,7 +74,9 @@ function mapRow(row: UserNetworthMasterRow | undefined): UserNetworthMaster {
     networth: Number(row.networth) || 0,
     monthlySalary: Number(row.monthly_salary) || 0,
     marginAmount: Number(row.margin_amount) || 0,
+    realInvestFromBank: Number(row.real_invest_from_bank) || 0,
     totalCreditCardDue: Number(row.total_credit_card_due) || 0,
+    receivables: Number(row.receivables) || 0,
   };
 }
 
@@ -113,6 +123,22 @@ async function migrateMasterNumericColumnsToDoublePrecision(): Promise<void> {
   `;
 }
 
+async function migrateRealInvestFromBankColumn(): Promise<void> {
+  const sql = getNeonSql();
+  await sql`
+    ALTER TABLE user_networth_master
+    ADD COLUMN IF NOT EXISTS real_invest_from_bank double precision NOT NULL DEFAULT 0
+  `;
+}
+
+async function migrateReceivablesColumn(): Promise<void> {
+  const sql = getNeonSql();
+  await sql`
+    ALTER TABLE user_networth_master
+    ADD COLUMN IF NOT EXISTS receivables double precision NOT NULL DEFAULT 0
+  `;
+}
+
 export async function ensureUserNetworthMasterTable(): Promise<void> {
   await ensureUsersTable();
   const sql = getNeonSql();
@@ -131,12 +157,16 @@ export async function ensureUserNetworthMasterTable(): Promise<void> {
       networth double precision NOT NULL DEFAULT 0,
       monthly_salary double precision NOT NULL DEFAULT 0,
       margin_amount double precision NOT NULL DEFAULT 0,
+      real_invest_from_bank double precision NOT NULL DEFAULT 0,
       total_credit_card_due double precision NOT NULL DEFAULT 0,
+      receivables double precision NOT NULL DEFAULT 0,
       updated_at timestamptz NOT NULL DEFAULT now()
     )
   `;
   await migrateActualInvestedToTotalInvestedColumn();
   await migrateMasterNumericColumnsToDoublePrecision();
+  await migrateRealInvestFromBankColumn();
+  await migrateReceivablesColumn();
 }
 
 export async function ensureUserNetworthMasterRow(userId: string): Promise<void> {
@@ -166,12 +196,83 @@ export async function getUserNetworthMaster(userId: string): Promise<UserNetwort
       networth,
       monthly_salary,
       margin_amount,
-      total_credit_card_due
+      real_invest_from_bank,
+      total_credit_card_due,
+      receivables
     FROM user_networth_master
     WHERE user_id = ${userId}
     LIMIT 1
   `;
   return mapRow(rows[0] as UserNetworthMasterRow | undefined);
+}
+
+export async function updateRealInvestFromBank(
+  userId: string,
+  realInvestFromBank: number,
+): Promise<UserNetworthMaster> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  const v = Math.max(0, Number(realInvestFromBank) || 0);
+  await sql`
+    UPDATE user_networth_master
+    SET
+      real_invest_from_bank = ${v},
+      updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return getUserNetworthMaster(userId);
+}
+
+export async function updateMasterFinancialField(
+  userId: string,
+  field: 'totalCreditCardDue' | 'ppfAmount' | 'liquidFundInvestment' | 'receivables',
+  value: number,
+): Promise<UserNetworthMaster> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  const safeValue = Math.max(0, Number(value) || 0);
+
+  if (field === 'totalCreditCardDue') {
+    await sql`
+      UPDATE user_networth_master
+      SET
+        total_credit_card_due = ${safeValue},
+        updated_at = now()
+      WHERE user_id = ${userId}
+    `;
+    return getUserNetworthMaster(userId);
+  }
+
+  if (field === 'ppfAmount') {
+    await sql`
+      UPDATE user_networth_master
+      SET
+        ppf_amount = ${safeValue},
+        updated_at = now()
+      WHERE user_id = ${userId}
+    `;
+    return getUserNetworthMaster(userId);
+  }
+
+  if (field === 'receivables') {
+    await sql`
+      UPDATE user_networth_master
+      SET
+        receivables = ${safeValue},
+        updated_at = now()
+      WHERE user_id = ${userId}
+    `;
+    return getUserNetworthMaster(userId);
+  }
+
+  await sql`
+    UPDATE user_networth_master
+    SET
+      liquid_fund_investment = ${safeValue},
+      updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return getUserNetworthMaster(userId);
 }
 
 export async function updateMarginAmount(userId: string, marginAmount: number): Promise<void> {
