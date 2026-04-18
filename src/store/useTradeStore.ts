@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { Rule, Trade, Settings, WatchlistItem, initDB } from '../db';
+import { Rule, Trade, Settings, WatchlistItem, WatchlistList, initDB } from '../db';
+import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 
 // Use crypto.randomUUID for unique IDs
 const generateId = () => crypto.randomUUID();
@@ -32,6 +33,7 @@ interface TradeState {
   trades: Trade[];
   rules: Rule[];
   settings: Settings;
+  watchlistLists: WatchlistList[];
   watchlist: WatchlistItem[];
   isLoading: boolean;
   
@@ -48,9 +50,13 @@ interface TradeState {
   deleteRule: (id: string) => Promise<void>;
   
   updateSettings: (updates: Partial<Settings>) => Promise<void>;
-  addToWatchlist: (item: Omit<WatchlistItem, 'addedAt'>) => Promise<void>;
+  addToWatchlist: (item: Omit<WatchlistItem, 'addedAt' | 'id'> & { id?: string }) => Promise<void>;
+  addManyToWatchlist: (items: Array<Omit<WatchlistItem, 'addedAt' | 'id'> & { id?: string }>) => Promise<void>;
   removeFromWatchlist: (id: string) => Promise<void>;
-  toggleWatchlist: (item: Omit<WatchlistItem, 'addedAt'>) => Promise<void>;
+  toggleWatchlist: (item: Omit<WatchlistItem, 'addedAt' | 'id'> & { id?: string }) => Promise<void>;
+  createWatchlistList: (name: string) => Promise<void>;
+  renameWatchlistList: (listId: string, name: string) => Promise<void>;
+  deleteWatchlistList: (listId: string) => Promise<void>;
 }
 
 const DEFAULT_RULES: Omit<Rule, 'id'>[] = [
@@ -83,6 +89,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     networthAssets: [],
     brokerMarginUsed: 0,
   },
+  watchlistLists: [],
   watchlist: [],
   isLoading: true,
 
@@ -91,6 +98,9 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     let trades = await db.getAll('trades');
     let rules = await db.getAll('rules');
     let settings = await db.get('settings', 'global');
+    let watchlistLists = (await db.getAll('watchlistLists')).sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt,
+    );
     let watchlist = (await db.getAll('watchlist')).sort((a, b) => b.addedAt - a.addedAt);
 
     if (rules.length === 0) {
@@ -217,29 +227,67 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       const res = await fetch('/api/watchlist', { cache: 'no-store' });
       if (res.ok) {
         const payload = (await res.json()) as {
+          lists?: Array<{
+            id: string;
+            name: string;
+            sortOrder: number;
+            createdAt: number;
+          }>;
           watchlist?: Array<{
             id: string;
+            listId: string;
+            kind: 'equity' | 'index';
             symbol: string;
-            company_name: string;
-            added_at: number;
+            companyName: string;
+            addedAt: number;
           }>;
         };
 
         const serverRows = Array.isArray(payload.watchlist) ? payload.watchlist : [];
+        let serverLists = Array.isArray(payload.lists) ? payload.lists : [];
+
         watchlist = serverRows
           .map((row) => ({
             id: String(row.id ?? ''),
-            symbol: String(row.symbol ?? ''),
-            companyName: String(row.company_name ?? ''),
-            addedAt: Number(row.added_at) || Date.now(),
+            listId: String(row.listId ?? DEFAULT_WATCHLIST_LIST_ID),
+            kind: row.kind === 'index' ? ('index' as const) : ('equity' as const),
+            symbol: String(row.symbol ?? '').trim().toUpperCase(),
+            companyName: String(row.companyName ?? '').trim(),
+            addedAt: Number(row.addedAt) || Date.now(),
           }))
           .filter((item) => item.id && item.symbol && item.companyName)
           .sort((a, b) => b.addedAt - a.addedAt);
 
-        const tx = db.transaction('watchlist', 'readwrite');
-        await tx.store.clear();
+        if (serverLists.length === 0 && watchlist.length > 0) {
+          serverLists = [
+            {
+              id: DEFAULT_WATCHLIST_LIST_ID,
+              name: 'Main',
+              sortOrder: 0,
+              createdAt: Date.now(),
+            },
+          ];
+          watchlist = watchlist.map((w) => ({ ...w, listId: DEFAULT_WATCHLIST_LIST_ID }));
+        }
+
+        watchlistLists = serverLists
+          .map((row) => ({
+            id: String(row.id ?? ''),
+            name: String(row.name ?? '').trim() || 'Untitled',
+            sortOrder: Number(row.sortOrder) || 0,
+            createdAt: Number(row.createdAt) || Date.now(),
+          }))
+          .filter((l) => l.id && l.name)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+
+        const tx = db.transaction(['watchlist', 'watchlistLists'], 'readwrite');
+        await tx.objectStore('watchlistLists').clear();
+        await tx.objectStore('watchlist').clear();
+        for (const list of watchlistLists) {
+          await tx.objectStore('watchlistLists').put(list);
+        }
         for (const item of watchlist) {
-          await tx.store.put(item);
+          await tx.objectStore('watchlist').put(item);
         }
         await tx.done;
       }
@@ -251,6 +299,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       trades: trades.sort((a, b) => b.entryDate - a.entryDate), 
       rules, 
       settings, 
+      watchlistLists,
       watchlist,
       isLoading: false 
     });
@@ -374,14 +423,77 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
   addToWatchlist: async (item) => {
     const db = await initDB();
-    const existing = await db.get('watchlist', item.id);
-    if (existing) return;
+    const listId = item.listId?.trim() || DEFAULT_WATCHLIST_LIST_ID;
+    const kind = item.kind ?? 'equity';
+    const id = item.id?.trim() || generateId();
+    const sym = item.symbol.trim().toUpperCase();
 
-    const next: WatchlistItem = { ...item, addedAt: Date.now() };
+    const existingById = await db.get('watchlist', id);
+    if (existingById) return;
+
+    const all = await db.getAll('watchlist');
+    const dup = all.some(
+      (w) =>
+        w.listId === listId &&
+        w.kind === kind &&
+        w.symbol.trim().toUpperCase() === sym,
+    );
+    if (dup) return;
+
+    const next: WatchlistItem = {
+      id,
+      listId,
+      kind,
+      symbol: sym,
+      companyName: item.companyName.trim(),
+      addedAt: Date.now(),
+    };
     await db.put('watchlist', next);
     await syncWatchlistItemToServer(next);
     set((state) => ({
       watchlist: [next, ...state.watchlist].sort((a, b) => b.addedAt - a.addedAt),
+    }));
+  },
+
+  addManyToWatchlist: async (items) => {
+    if (items.length === 0) return;
+    const db = await initDB();
+    const base = Date.now();
+    const newItems: WatchlistItem[] = [];
+    const all = await db.getAll('watchlist');
+
+    for (let i = 0; i < items.length; i++) {
+      const raw = items[i];
+      const listId = raw.listId?.trim() || DEFAULT_WATCHLIST_LIST_ID;
+      const kind = raw.kind ?? 'equity';
+      const id = raw.id?.trim() || generateId();
+      const sym = raw.symbol.trim().toUpperCase();
+
+      if (await db.get('watchlist', id)) continue;
+      const dupLocal = newItems.some(
+        (w) => w.listId === listId && w.kind === kind && w.symbol === sym,
+      );
+      const dupDb = all.some(
+        (w) => w.listId === listId && w.kind === kind && w.symbol.trim().toUpperCase() === sym,
+      );
+      if (dupLocal || dupDb) continue;
+
+      const next: WatchlistItem = {
+        id,
+        listId,
+        kind,
+        symbol: sym,
+        companyName: raw.companyName.trim(),
+        addedAt: base + i,
+      };
+      await db.put('watchlist', next);
+      await syncWatchlistItemToServer(next);
+      newItems.push(next);
+    }
+
+    if (newItems.length === 0) return;
+    set((state) => ({
+      watchlist: [...newItems, ...state.watchlist].sort((a, b) => b.addedAt - a.addedAt),
     }));
   },
 
@@ -395,11 +507,99 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   },
 
   toggleWatchlist: async (item) => {
-    const existing = get().watchlist.some((w) => w.id === item.id);
+    const listId = item.listId?.trim() || DEFAULT_WATCHLIST_LIST_ID;
+    const kind = item.kind ?? 'equity';
+    const sym = item.symbol.trim().toUpperCase();
+    const existing = get().watchlist.find(
+      (w) => w.listId === listId && w.kind === kind && w.symbol.trim().toUpperCase() === sym,
+    );
     if (existing) {
-      await get().removeFromWatchlist(item.id);
+      await get().removeFromWatchlist(existing.id);
     } else {
-      await get().addToWatchlist(item);
+      await get().addToWatchlist({ ...item, listId, kind, id: item.id?.trim() || generateId() });
     }
+  },
+
+  createWatchlistList: async (name) => {
+    const db = await initDB();
+    const sortOrder = get().watchlistLists.length;
+    let list: WatchlistList = {
+      id: generateId(),
+      name: name.trim() || 'Untitled',
+      createdAt: Date.now(),
+      sortOrder,
+    };
+    try {
+      const res = await fetch('/api/watchlist/lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: list.name }),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as {
+          list?: { id: string; name: string; createdAt: number; sortOrder: number };
+        };
+        if (body.list) {
+          list = {
+            id: body.list.id,
+            name: body.list.name,
+            createdAt: body.list.createdAt,
+            sortOrder: body.list.sortOrder,
+          };
+        }
+      }
+    } catch {
+      /* offline */
+    }
+    await db.put('watchlistLists', list);
+    set((state) => ({
+      watchlistLists: [...state.watchlistLists.filter((x) => x.id !== list.id), list].sort(
+        (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt,
+      ),
+    }));
+  },
+
+  renameWatchlistList: async (listId, name) => {
+    const trimmed = name.trim() || 'Untitled';
+    const db = await initDB();
+    const prev = await db.get('watchlistLists', listId);
+    if (!prev) return;
+    const next: WatchlistList = { ...prev, name: trimmed };
+    try {
+      await fetch('/api/watchlist/lists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: listId, name: trimmed }),
+      });
+    } catch {
+      /* offline */
+    }
+    await db.put('watchlistLists', next);
+    set((state) => ({
+      watchlistLists: state.watchlistLists.map((l) => (l.id === listId ? next : l)),
+    }));
+  },
+
+  deleteWatchlistList: async (listId) => {
+    if (listId === DEFAULT_WATCHLIST_LIST_ID) return;
+    const db = await initDB();
+    try {
+      await fetch('/api/watchlist/lists', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: listId }),
+      });
+    } catch {
+      /* offline */
+    }
+    const all = await db.getAll('watchlist');
+    for (const w of all) {
+      if (w.listId === listId) await db.delete('watchlist', w.id);
+    }
+    await db.delete('watchlistLists', listId);
+    set((state) => ({
+      watchlist: state.watchlist.filter((w) => w.listId !== listId),
+      watchlistLists: state.watchlistLists.filter((l) => l.id !== listId),
+    }));
   },
 }));

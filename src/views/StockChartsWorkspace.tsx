@@ -3,8 +3,8 @@
 import { useMemo, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useTradeStore } from '@/store/useTradeStore';
-import { toTradingViewSymbol } from '@/lib/tradingview-symbol';
-import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
+import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
+import { nseSymbolFromTradingViewId, toTradingViewSymbol } from '@/lib/tradingview-symbol';
 import { markPriceForTrade, useActiveTradeLivePrices } from '@/hooks/useActiveTradeLivePrices';
 import type { Trade } from '@/db';
 import { Loader2, LineChart } from 'lucide-react';
@@ -60,6 +60,13 @@ export default function StockChartsWorkspace() {
     return '';
   }, [holdings, paramSymbol]);
 
+  const chartNseSymbol = useMemo(() => {
+    const g = holdings.find((h) => h.tvSymbol === selectedTvSymbol);
+    if (g) return g.displaySymbol.trim().toUpperCase();
+    if (selectedTvSymbol) return nseSymbolFromTradingViewId(selectedTvSymbol);
+    return '';
+  }, [holdings, selectedTvSymbol]);
+
   useEffect(() => {
     if (holdings.length === 0) return;
     if (!paramSymbol || !holdings.some((h) => h.tvSymbol === paramSymbol)) {
@@ -82,7 +89,7 @@ export default function StockChartsWorkspace() {
       <div>
         <h1 className="text-2xl font-black tracking-tight text-white">Holdings & charts</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Active positions on the left; select one to view its TradingView chart on the right.
+          Active positions on the left; select one to view its candle chart on the right.
         </p>
       </div>
 
@@ -153,11 +160,13 @@ export default function StockChartsWorkspace() {
                 <span className="font-mono text-[11px] text-gray-400">{selectedTvSymbol}</span>
               </div>
               <div className="relative min-h-0 flex-1 overflow-hidden">
-                <TradingViewAdvancedChartWidget
-                  key={selectedTvSymbol}
-                  symbol={selectedTvSymbol}
-                  className="tradingview-widget-container absolute inset-0 flex h-full min-h-0 w-full flex-col"
-                />
+                {chartNseSymbol ? (
+                  <NseEquityCandleChartWidget
+                    key={chartNseSymbol}
+                    symbol={chartNseSymbol}
+                    className="absolute inset-0 flex h-full min-h-0 w-full flex-col"
+                  />
+                ) : null}
               </div>
             </div>
           ) : (

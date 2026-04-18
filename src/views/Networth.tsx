@@ -1,10 +1,22 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { IMPORTED_HOLDINGS_NOTE, isImportedHoldingTrade, useTradeStore } from '../store/useTradeStore';
+import { useTradeStore } from '../store/useTradeStore';
 import { PieChart, Plus, Trash2, Upload, Activity, ShieldAlert, Loader2, Info } from 'lucide-react';
 import * as xlsx from 'xlsx';
 import { markPriceForTrade, useActiveTradeLivePrices } from '@/hooks/useActiveTradeLivePrices';
 import { formatInr } from '@/lib/format-inr';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Trade } from '@/db';
+
+type NeonHoldingRow = {
+  symbol: string;
+  quantity: number;
+  average_price: number;
+  previous_close_price: number;
+};
+
+type HoldingsQueryData =
+  | { kind: 'unauthorized' }
+  | { kind: 'ok'; holdings: NeonHoldingRow[] };
 
 type NetworthMasterPayload = {
   totalInvested: number;
@@ -37,8 +49,66 @@ function InfoHint({ text }: { text: string }) {
 }
 
 export default function Networth() {
-  const { settings, updateSettings, trades, replaceImportedHoldings } = useTradeStore();
+  const { settings, updateSettings } = useTradeStore();
   const queryClient = useQueryClient();
+
+  const holdingsQuery = useQuery({
+    queryKey: ['networth-holdings'],
+    queryFn: async (): Promise<HoldingsQueryData> => {
+      const res = await fetch('/api/holdings', { cache: 'no-store' });
+      if (res.status === 401) return { kind: 'unauthorized' };
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? 'Failed to load holdings');
+      }
+      const body = (await res.json()) as { holdings?: NeonHoldingRow[] };
+      const holdings = Array.isArray(body.holdings) ? body.holdings : [];
+      return { kind: 'ok', holdings };
+    },
+    retry: 1,
+  });
+
+  const holdingsResult = holdingsQuery.data;
+  const holdingsRows = holdingsResult?.kind === 'ok' ? holdingsResult.holdings : [];
+  const showHoldingsEmptyState =
+    holdingsQuery.isFetched &&
+    (holdingsResult?.kind === 'unauthorized' ||
+      (holdingsResult?.kind === 'ok' && holdingsRows.length === 0));
+
+  const syntheticHoldingsTrades = useMemo((): Trade[] => {
+    if (holdingsResult?.kind !== 'ok') return [];
+    const defaultType = settings.tradeTypes?.[0]?.name || 'Buy & Forget';
+    return holdingsResult.holdings.map((row, idx) => {
+      const entry = Number(row.average_price) || 0;
+      const close = Number(row.previous_close_price) || entry;
+      return {
+        id: `neon-holding-${String(row.symbol).trim().toUpperCase()}-${idx}`,
+        symbol: String(row.symbol).trim().toUpperCase(),
+        type: defaultType,
+        entryPrice: entry,
+        currentPrice: close > 0 ? close : entry,
+        stopLoss: entry > 0 ? entry * 0.9 : 0,
+        positionSize: Number(row.quantity) || 0,
+        status: 'Active' as const,
+        entryDate: Date.now() + idx,
+        ruleScores: {},
+        totalScore: 0,
+        maxPossibleScore: 0,
+        scorePercentage: 0,
+        verdict: 'B' as const,
+        checklist: {
+          priorRally: false,
+          tightBase: false,
+          breakoutLevel: false,
+          volumeConfirmation: false,
+          emaAlignment: false,
+          relativeStrength: false,
+        },
+        notes: '',
+        mistakes: [],
+      };
+    });
+  }, [holdingsResult, settings.tradeTypes]);
 
   const networthMasterQuery = useQuery({
     queryKey: ['networth-master'],
@@ -53,11 +123,11 @@ export default function Networth() {
 
   const master = networthMasterQuery.data;
   const { livePriceBySymbol, quotesFetching, quoteErrors, activeSymbols } =
-    useActiveTradeLivePrices(trades);
+    useActiveTradeLivePrices(syntheticHoldingsTrades);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [importStep, setImportStep] = useState<'uploading' | 'replacing' | 'rendering' | null>(null);
+  const [importStep, setImportStep] = useState<'uploading' | 'saving' | null>(null);
   const [duePayablesInput, setDuePayablesInput] = useState('');
   const [ppfInput, setPpfInput] = useState('');
   const [liquidFundInput, setLiquidFundInput] = useState('');
@@ -162,60 +232,30 @@ export default function Networth() {
              throw new Error('Missing columns. Cannot find Symbol, Quantity, Average Price, or Closing Price headers.');
         }
 
-        const defaultType = settings.tradeTypes?.[0]?.name || 'Buy & Forget';
-        const existingManualActiveSymbols = new Set(
-          trades
-            .filter((t) => t.status === 'Active' && !isImportedHoldingTrade(t))
-            .map((t) => t.symbol),
-        );
         const parsedHoldings: {
           symbol: string;
           quantity: number;
           averagePrice: number;
           previousClosePrice: number;
         }[] = [];
-        const newTrades = [];
-        
+
         for (let i = headerIdx + 1; i < data.length; i++) {
             const row = data[i];
             if (!row || row.length === 0) continue;
-            
+
             const symbol = row[symIdx];
             if (!symbol || symbol === 'Total' || symbol === 'Summary') continue;
-            
+
             const qty = parseFloat(row[qtyIdx] || 0);
             const entryPrice = parseFloat(row[avgPriceIdx] || 0);
             const currentPrice = parseFloat(row[closePriceIdx] || 0);
-            
+
             if (qty > 0 && entryPrice > 0) {
                  parsedHoldings.push({
                    symbol: String(symbol).trim().toUpperCase(),
                    quantity: qty,
                    averagePrice: entryPrice,
                    previousClosePrice: currentPrice > 0 ? currentPrice : entryPrice,
-                 });
-            }
-
-            if (qty > 0 && entryPrice > 0 && !existingManualActiveSymbols.has(symbol)) {
-                 newTrades.push({ 
-                     symbol: symbol,
-                     type: defaultType,
-                     entryPrice: entryPrice,
-                     currentPrice: currentPrice,
-                     stopLoss: entryPrice * 0.9, // placeholder stoploss -10%
-                     positionSize: qty,
-                     status: 'Active',
-                     ruleScores: {},
-                     totalScore: 0,
-                     maxPossibleScore: 0,
-                     scorePercentage: 0,
-                     verdict: 'B' as const,
-                     checklist: {
-                       priorRally: false, tightBase: false, breakoutLevel: false,
-                       volumeConfirmation: false, emaAlignment: false, relativeStrength: false
-                     },
-                    notes: IMPORTED_HOLDINGS_NOTE,
-                     mistakes: []
                  });
             }
         }
@@ -242,11 +282,10 @@ export default function Networth() {
           await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
         }
 
-        setImportStep('replacing');
-        await replaceImportedHoldings(newTrades as any);
-        setImportStep('rendering');
+        setImportStep('saving');
+        await queryClient.invalidateQueries({ queryKey: ['networth-holdings'] });
         await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
-        alert(`Holdings replaced successfully. Uploaded ${parsedHoldings.length} rows.`);
+        alert(`Holdings saved to server. Uploaded ${parsedHoldings.length} rows.`);
         
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err: any) {
@@ -258,23 +297,22 @@ export default function Networth() {
     })();
   };
 
-  const activeTrades = trades.filter((t) => t.status === 'Active');
-  const hasActiveEquity = activeTrades.length > 0;
+  const activeTrades = syntheticHoldingsTrades;
+  const hasNeonHoldingsEquity = holdingsRows.length > 0;
 
   /** Sum manual / imported assets. If you have logged active trades, the template "Stocks" row is skipped so equity is not double-counted. */
   const manualAssetsValue = useMemo(() => {
     const assets = settings?.networthAssets || [];
     return assets.reduce((sum, asset) => {
       const name = (asset.name || '').trim().toLowerCase();
-      if (hasActiveEquity && name === 'stocks') return sum;
+      if (hasNeonHoldingsEquity && name === 'stocks') return sum;
       // PPF/Liquid Fund now come from dedicated server-synced inputs below.
       if (name === 'ppf' || name === 'liquid fund' || name === 'liquid_fund') return sum;
       if (name === 'receivables' || name === 'receivable') return sum;
       return sum + (Number(asset.value) || 0);
     }, 0);
-  }, [settings?.networthAssets, hasActiveEquity]);
+  }, [settings?.networthAssets, hasNeonHoldingsEquity]);
 
-  const stocksInvested = activeTrades.reduce((sum, t) => sum + t.positionSize * t.entryPrice, 0);
   const stocksPresent = activeTrades.reduce(
     (sum, t) => sum + t.positionSize * markPriceForTrade(t, livePriceBySymbol),
     0,
@@ -333,7 +371,7 @@ export default function Networth() {
         <div className="text-5xl font-black text-amber-500">{formatInr(totalValue)}</div>
         <div className="text-xs text-gray-500 mt-2 max-w-md text-center leading-relaxed">
           {formatInr(manualAssetsValue)} manual / other assets
-          {hasActiveEquity ? (
+          {hasNeonHoldingsEquity ? (
             <>
               {' '}
               + {formatInr(stocksPresent)} active equity ({activeTrades.length}{' '}
@@ -358,7 +396,7 @@ export default function Networth() {
               − {formatInr(duePayablesSaved)} due payables
             </>
           ) : null}
-          {hasActiveEquity && hasStocksManualRow ? (
+          {hasNeonHoldingsEquity && hasStocksManualRow ? (
             <span className="block mt-1 text-[10px] text-gray-600">
               The &quot;Stocks&quot; manual row is excluded from the total while you have active trades, to avoid double-counting equity.
             </span>
@@ -381,7 +419,26 @@ export default function Networth() {
         ) : null}
       </div>
 
-      {stocksInvested > 0 && (
+      {holdingsQuery.isError ? (
+        <div className="p-6 rounded-3xl border border-red-500/25 bg-red-500/5 text-sm text-red-300">
+          Could not load holdings from the server. Refresh the page or try again later.
+        </div>
+      ) : holdingsQuery.isPending ? (
+        <div className="p-6 rounded-3xl border border-white/10 bg-[#161618] flex items-center gap-2 text-sm text-gray-400">
+          <Loader2 className="h-4 w-4 animate-spin shrink-0 text-blue-400" aria-hidden />
+          Loading holdings from server…
+        </div>
+      ) : showHoldingsEmptyState ? (
+        <div className="p-6 rounded-3xl border border-blue-500/20 bg-blue-500/5 space-y-2">
+          <h2 className="text-sm font-bold text-blue-300 uppercase tracking-widest">Holdings</h2>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            <span className="font-semibold text-white">Not enough data.</span>{' '}
+            {holdingsResult?.kind === 'unauthorized'
+              ? 'Sign in to load positions from the database, or import a holdings file after signing in.'
+              : 'There are no rows in your server holdings yet. Use Import Zerodha Holdings below to save positions to the database.'}
+          </p>
+        </div>
+      ) : hasNeonHoldingsEquity ? (
         <div className="p-6 rounded-3xl bg-blue-600/5 border border-blue-500/10 space-y-6">
           <div>
             <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest">
@@ -552,7 +609,7 @@ export default function Networth() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <section className="p-6 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
         <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest">
@@ -801,25 +858,17 @@ export default function Networth() {
                 ) : (
                   <span className="text-green-400">✓</span>
                 )}
-                <span>Uploading the file</span>
+                <span>Parsing spreadsheet</span>
               </div>
               <div className="flex items-center gap-2">
-                {importStep === 'replacing' ? (
+                {importStep === 'saving' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" />
-                ) : importStep === 'rendering' ? (
+                ) : importStep === 'uploading' ? (
+                  <span className="text-gray-500">•</span>
+                ) : (
                   <span className="text-green-400">✓</span>
-                ) : (
-                  <span className="text-gray-500">•</span>
                 )}
-                <span>Replacing old data</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {importStep === 'rendering' ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" />
-                ) : (
-                  <span className="text-gray-500">•</span>
-                )}
-                <span>Rendering new data</span>
+                <span>Saving holdings to Neon &amp; refreshing</span>
               </div>
             </div>
           </div>

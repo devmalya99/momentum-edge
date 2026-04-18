@@ -3,14 +3,20 @@ import { getSessionFromCookies } from '@/lib/auth/server-session';
 import {
   deleteUserWatchlistItem,
   listUserWatchlist,
+  listUserWatchlistLists,
+  seedDefaultWatchlistListIfEmpty,
   upsertUserWatchlistItem,
   type UserWatchlistInput,
+  type WatchlistKind,
 } from '@/lib/db/watchlist';
 
 function normalizeWatchlistItem(input: unknown): UserWatchlistInput | null {
   if (!input || typeof input !== 'object') return null;
   const row = input as Record<string, unknown>;
   const id = String(row.id ?? '').trim();
+  const listId = String(row.listId ?? 'default').trim() || 'default';
+  const kindRaw = String(row.kind ?? 'equity').toLowerCase();
+  const kind: WatchlistKind = kindRaw === 'index' ? 'index' : 'equity';
   const symbol = String(row.symbol ?? '').trim().toUpperCase();
   const companyName = String(row.companyName ?? '').trim();
   const addedAt = Number(row.addedAt);
@@ -18,7 +24,7 @@ function normalizeWatchlistItem(input: unknown): UserWatchlistInput | null {
   if (!id || !symbol || !companyName) return null;
   if (!Number.isFinite(addedAt) || addedAt <= 0) return null;
 
-  return { id, symbol, companyName, addedAt };
+  return { id, listId, kind, symbol, companyName, addedAt };
 }
 
 export async function GET() {
@@ -28,8 +34,25 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    await seedDefaultWatchlistListIfEmpty(session.sub);
+    const lists = await listUserWatchlistLists(session.sub);
     const watchlist = await listUserWatchlist(session.sub);
-    return NextResponse.json({ watchlist });
+    return NextResponse.json({
+      lists: lists.map((l) => ({
+        id: l.id,
+        name: l.name,
+        sortOrder: l.sort_order,
+        createdAt: Number(l.created_at) || Date.now(),
+      })),
+      watchlist: watchlist.map((r) => ({
+        id: r.id,
+        listId: r.list_id,
+        kind: r.kind === 'index' ? 'index' : 'equity',
+        symbol: r.symbol,
+        companyName: r.company_name,
+        addedAt: Number(r.added_at) || Date.now(),
+      })),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch watchlist';
     return NextResponse.json({ error: message }, { status: 500 });

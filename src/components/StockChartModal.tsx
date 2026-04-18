@@ -2,7 +2,8 @@
 
 import { ExternalLink, X } from 'lucide-react';
 import { motion } from 'motion/react';
-import TradingViewAdvancedChartWidget from './TradingViewAdvancedChartWidget';
+import NseEquityCandleChartWidget from './NseEquityCandleChartWidget';
+import { nseSymbolFromTradingViewId } from '@/lib/tradingview-symbol';
 
 type Props = {
   symbol: string;
@@ -12,6 +13,7 @@ type Props = {
 
 export default function StockChartModal({ symbol, displayName, onClose }: Props) {
   const title = displayName ?? (symbol.includes(':') ? symbol.split(':')[1] : symbol);
+  const nseSymbol = nseSymbolFromTradingViewId(symbol);
 
   return (
     <motion.div
@@ -57,7 +59,7 @@ export default function StockChartModal({ symbol, displayName, onClose }: Props)
           </div>
         </div>
         <div className="min-h-0 flex-1 bg-[#0f0f0f] p-2 sm:p-4">
-          <TradingViewAdvancedChartWidget key={symbol} symbol={symbol} />
+          <NseEquityCandleChartWidget key={nseSymbol} symbol={nseSymbol} className="h-full min-h-[400px]" />
         </div>
       </motion.div>
     </motion.div>

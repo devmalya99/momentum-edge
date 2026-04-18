@@ -21,6 +21,8 @@
 - Added `xlsx` processor to deserialize Zerodha Equity Holdings reports directly into the database.
 - Implemented rich hover-tooltips for Trade Context during form data entry.
 
-### 🔜 Step 4: Logic & State Management
-- Utilize `zustand` to manage app states effectively. 
-- Ensure best practices for performance and modern web design aesthetics.
+### ✅ Step 5: Documentation & System Mapping
+- Performed a full project audit to map all features page-by-page.
+- Created `features.md` to serve as a user and developer functionality guide.
+- Developed `architecture.md` detailing the technical stack and folder structure.
+- Updated `accomplishments.md` and `README.md` to reflect the current high-performance state of the app.

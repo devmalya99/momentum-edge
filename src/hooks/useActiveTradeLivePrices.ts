@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import type { Trade } from '@/db';
-import { fetchNseEquityQuotePrice } from '@/lib/nse-quote-client';
+import { fetchNseEquityQuoteRow, lastPriceFromNseQuoteRow } from '@/lib/nse-quote-client';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
@@ -23,7 +23,7 @@ export function useActiveTradeLivePrices(trades: Trade[]) {
   const quoteQueries = useQueries({
     queries: activeSymbols.map((symbol) => ({
       queryKey: ['nse-equity-quote', symbol] as const,
-      queryFn: () => fetchNseEquityQuotePrice(symbol),
+      queryFn: () => fetchNseEquityQuoteRow(symbol),
       enabled: activeSymbols.length > 0,
       staleTime: 0,
       gcTime: 30 * 60 * 1000,
@@ -32,12 +32,20 @@ export function useActiveTradeLivePrices(trades: Trade[]) {
     })),
   });
 
-  const quoteDataSignature = quoteQueries.map((q) => q.data ?? '').join('|');
+  const quoteDataSignature = quoteQueries
+    .map((q) => {
+      const row = q.data;
+      if (!row) return '';
+      const p = lastPriceFromNseQuoteRow(row);
+      return `${p ?? ''}:${row.metaData?.pChange ?? ''}`;
+    })
+    .join('|');
 
   const livePriceBySymbol = useMemo(() => {
     const m: Record<string, number> = {};
     activeSymbols.forEach((sym, i) => {
-      const p = quoteQueries[i]?.data;
+      const row = quoteQueries[i]?.data;
+      const p = lastPriceFromNseQuoteRow(row);
       if (typeof p === 'number' && p > 0) m[sym] = p;
     });
     return m;
