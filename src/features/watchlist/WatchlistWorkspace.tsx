@@ -326,7 +326,7 @@ export default function WatchlistWorkspace() {
         <h1 className="text-2xl font-black tracking-tight text-white">Watchlist</h1>
         <p className="mt-1 text-sm text-gray-500">
           Named lists, NSE equity search, and index search. Adding an index loads the index plus all constituents so you
-          can review each name and chart. Bookmarks from the 52-week scanner go to your Main list.
+          can review each name and chart. Bookmarks from the Scanner go to your Main list.
         </p>
       </div>
 
@@ -521,7 +521,7 @@ export default function WatchlistWorkspace() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
             {itemsForList.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-gray-500">
-                No symbols in this list yet. Search above or bookmark from the 52-week scanner.
+                No symbols in this list yet. Search above or bookmark from the Scanner.
               </div>
             ) : (
               <ul className="space-y-1">

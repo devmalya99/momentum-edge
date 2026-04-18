@@ -13,7 +13,7 @@ import {
 } from '@/lib/nse-equity-historical-kline';
 import { Loader2 } from 'lucide-react';
 
-const PERIODS: CustomCandlePeriod[] = ['1d', '3d', '1w', '3w', '1m'];
+const PERIODS: CustomCandlePeriod[] = ['1d', '2d', '3d', '5d', '1w', '3w', '1m'];
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -53,7 +53,7 @@ export default function NseEquityCandleChartWidget({
     return { from: historyFrom ?? d.from, to: historyTo ?? d.to };
   }, [historyFrom, historyTo]);
 
-  const [period, setPeriod] = useState<CustomCandlePeriod>('1d');
+  const [period, setPeriod] = useState<CustomCandlePeriod>('3d');
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
 

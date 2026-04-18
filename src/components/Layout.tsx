@@ -39,7 +39,7 @@ const NAV_ITEMS = [
   { id: 'networth', label: 'Networth', icon: PieChart, href: '/networth' },
   { id: 'analytics', label: 'Analytics', icon: BarChart2, href: '/analytics' },
   { id: 'market-view', label: 'Market View', icon: Globe, href: '/market-view' },
-  { id: '52h-scanner', label: '52 H Scanner', icon: ScanSearch, href: '/52w-scanner' },
+  { id: '52h-scanner', label: 'Scanner', icon: ScanSearch, href: '/52w-scanner' },
   { id: 'watchlist', label: 'Watchlist', icon: Bookmark, href: '/watchlist' },
   { id: 'mtf-checker', label: 'MTF Checker', icon: Calculator, href: '/mtf-checker' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },

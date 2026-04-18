@@ -26,3 +26,7 @@
 - Created `features.md` to serve as a user and developer functionality guide.
 - Developed `architecture.md` detailing the technical stack and folder structure.
 - Updated `accomplishments.md` and `README.md` to reflect the current high-performance state of the app.
+
+### ✅ Step 6: Bug Fixing & UI Stability
+- **Fixed Kanban Drop Bug**: Resolved issue where trades couldn't be dropped into different columns in `PortfolioKanbanBoard`.
+- **Refined Event Bubbling**: Corrected `onDragOver` and `onDrop` propagation to ensure consistent state updates.

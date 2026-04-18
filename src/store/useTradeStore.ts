@@ -29,6 +29,21 @@ async function deleteWatchlistItemFromServer(id: string): Promise<void> {
   }
 }
 
+async function syncHoldingsTradeTypeToServer(symbol: string, tradeType: string | null): Promise<void> {
+  try {
+    await fetch('/api/holdings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: symbol.trim().toUpperCase(),
+        tradeType: tradeType ?? null,
+      }),
+    });
+  } catch {
+    /* offline; local trade row still updated */
+  }
+}
+
 interface TradeState {
   trades: Trade[];
   rules: Rule[];
@@ -94,6 +109,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   isLoading: true,
 
   fetchData: async () => {
+    console.log('Fetching all trade data...');
     const db = await initDB();
     let trades = await db.getAll('trades');
     let rules = await db.getAll('rules');
@@ -185,36 +201,46 @@ export const useTradeStore = create<TradeState>((set, get) => ({
             quantity: number;
             average_price: number;
             previous_close_price: number;
+            trade_type?: string | null;
           }>;
         };
         const serverRows = Array.isArray(payload.holdings) ? payload.holdings : [];
         const defaultType = settings.tradeTypes?.[0]?.name || 'Buy & Forget';
-        const importedTrades: Trade[] = serverRows.map((row, idx) => ({
-          id: generateId(),
-          symbol: row.symbol,
-          type: defaultType,
-          entryPrice: Number(row.average_price) || 0,
-          currentPrice: Number(row.previous_close_price) || Number(row.average_price) || 0,
-          stopLoss: (Number(row.average_price) || 0) * 0.9,
-          positionSize: Number(row.quantity) || 0,
-          status: 'Active',
-          entryDate: Date.now() + idx,
-          ruleScores: {},
-          totalScore: 0,
-          maxPossibleScore: 0,
-          scorePercentage: 0,
-          verdict: 'B',
-          checklist: {
-            priorRally: false,
-            tightBase: false,
-            breakoutLevel: false,
-            volumeConfirmation: false,
-            emaAlignment: false,
-            relativeStrength: false,
-          },
-          notes: IMPORTED_HOLDINGS_NOTE,
-          mistakes: [],
-        }));
+        
+        const importedTrades: Trade[] = serverRows.map((row, idx) => {
+          const id = `holding-${row.symbol.trim().toUpperCase()}`;
+          const localTrade = trades.find(t => t.id === id);
+          
+          return {
+            id,
+            symbol: row.symbol,
+            type:
+              typeof row.trade_type === 'string' && row.trade_type.trim()
+                ? row.trade_type.trim()
+                : (localTrade?.type || defaultType),
+            entryPrice: Number(row.average_price) || 0,
+            currentPrice: Number(row.previous_close_price) || Number(row.average_price) || 0,
+            stopLoss: (localTrade?.stopLoss) || (Number(row.average_price) || 0) * 0.9,
+            positionSize: Number(row.quantity) || 0,
+            status: 'Active',
+            entryDate: localTrade?.entryDate || (Date.now() + idx),
+            ruleScores: localTrade?.ruleScores || {},
+            totalScore: localTrade?.totalScore || 0,
+            maxPossibleScore: localTrade?.maxPossibleScore || 0,
+            scorePercentage: localTrade?.scorePercentage || 0,
+            verdict: localTrade?.verdict || 'B',
+            checklist: localTrade?.checklist || {
+              priorRally: false,
+              tightBase: false,
+              breakoutLevel: false,
+              volumeConfirmation: false,
+              emaAlignment: false,
+              relativeStrength: false,
+            },
+            notes: IMPORTED_HOLDINGS_NOTE,
+            mistakes: localTrade?.mistakes || [],
+          };
+        });
 
         const retainedTrades = trades.filter((trade) => !isImportedHoldingTrade(trade));
         trades = [...importedTrades, ...retainedTrades];
@@ -353,14 +379,41 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   },
 
   updateTrade: async (id, updates) => {
-    const db = await initDB();
-    const trade = await db.get('trades', id);
-    if (!trade) return;
+    console.log('[Store] 1. updateTrade invoked for ID:', id, 'with updates:', updates);
+    const currentState = get();
+    const trade = currentState.trades.find((t) => t.id === id);
+    
+    if (!trade) {
+      console.warn('[Store] Trade not found in memory:', id);
+      return;
+    }
+    
+    // Create the updated trade object
     const updatedTrade = { ...trade, ...updates };
-    await db.put('trades', updatedTrade);
+    const isImported = isImportedHoldingTrade(updatedTrade);
+    
+    console.log('[Store] 2. Optimistically updating UI state. isImported?', isImported);
+    // 1. Optimistic UI Update - happens immediately
     set((state) => ({
       trades: state.trades.map((t) => (t.id === id ? updatedTrade : t)),
     }));
+
+    // 2. Background Saving (Silent)
+    if (!isImported) {
+      console.log('[Store] 3. Saving regular trade to local IndexedDB.');
+      const db = await initDB();
+      await db.put('trades', updatedTrade);
+    } else {
+      if (updates.type !== undefined) {
+        console.log(`[Store] 3. Syncing imported holding trade type to server. Symbol: ${updatedTrade.symbol}`);
+        const t =
+          typeof updates.type === 'string' ? (updates.type.trim() ? updates.type.trim() : null) : null;
+        void syncHoldingsTradeTypeToServer(updatedTrade.symbol, t);
+      } else {
+        console.log('[Store] 3. Imported holding updated locally, but no server sync required for this field.');
+      }
+    }
+    console.log('[Store] 4. updateTrade completed.');
   },
 
   deleteTrade: async (id) => {

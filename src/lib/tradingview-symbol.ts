@@ -18,6 +18,19 @@ export function nseSymbolFromTradingViewId(tvSymbol: string): string {
   return s.slice(i + 1).trim().toUpperCase();
 }
 
+/**
+ * India screener often returns `NSE:TICKER`; TradingView embed chart query should use `BSE:TICKER`
+ * when you want the BSE listing. Leaves `BSE:…` and other prefixes unchanged.
+ */
+export function toBseTradingViewQuerySymbol(tvSymbol: string): string {
+  const s = tvSymbol.trim().toUpperCase();
+  if (s.startsWith('NSE:')) {
+    const ticker = s.slice(4).trim();
+    return ticker ? `BSE:${ticker}` : s;
+  }
+  return s;
+}
+
 const NSE_INDEX_TV: Record<string, string> = {
   'NIFTY 50': 'NSE:NIFTY',
   NIFTY50: 'NSE:NIFTY',
