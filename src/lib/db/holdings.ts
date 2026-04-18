@@ -34,6 +34,13 @@ export async function ensureUserHoldingsTable(): Promise<void> {
       PRIMARY KEY (user_id, symbol)
     )
   `;
+  // Legacy DBs may still have integer/numeric types from earlier schemas.
+  await sql`
+    ALTER TABLE user_holdings
+    ALTER COLUMN quantity TYPE double precision USING quantity::double precision,
+    ALTER COLUMN average_price TYPE double precision USING average_price::double precision,
+    ALTER COLUMN previous_close_price TYPE double precision USING previous_close_price::double precision
+  `;
 }
 
 export async function listUserHoldings(userId: string): Promise<UserHoldingRow[]> {

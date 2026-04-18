@@ -92,6 +92,27 @@ async function migrateActualInvestedToTotalInvestedColumn(): Promise<void> {
   `;
 }
 
+/** Older deployments may have integer-typed numeric fields; normalize to doubles. */
+async function migrateMasterNumericColumnsToDoublePrecision(): Promise<void> {
+  const sql = getNeonSql();
+  await sql`
+    ALTER TABLE user_networth_master
+    ALTER COLUMN total_invested TYPE double precision USING total_invested::double precision,
+    ALTER COLUMN current_holding_value TYPE double precision USING current_holding_value::double precision,
+    ALTER COLUMN unrealised_pnl TYPE double precision USING unrealised_pnl::double precision,
+    ALTER COLUMN unrealised_pnl_pct TYPE double precision USING unrealised_pnl_pct::double precision,
+    ALTER COLUMN bank_balance TYPE double precision USING bank_balance::double precision,
+    ALTER COLUMN ppf_amount TYPE double precision USING ppf_amount::double precision,
+    ALTER COLUMN liquid_fund_investment TYPE double precision USING liquid_fund_investment::double precision,
+    ALTER COLUMN fixed_deposit TYPE double precision USING fixed_deposit::double precision,
+    ALTER COLUMN total_debt TYPE double precision USING total_debt::double precision,
+    ALTER COLUMN networth TYPE double precision USING networth::double precision,
+    ALTER COLUMN monthly_salary TYPE double precision USING monthly_salary::double precision,
+    ALTER COLUMN margin_amount TYPE double precision USING margin_amount::double precision,
+    ALTER COLUMN total_credit_card_due TYPE double precision USING total_credit_card_due::double precision
+  `;
+}
+
 export async function ensureUserNetworthMasterTable(): Promise<void> {
   await ensureUsersTable();
   const sql = getNeonSql();
@@ -115,6 +136,7 @@ export async function ensureUserNetworthMasterTable(): Promise<void> {
     )
   `;
   await migrateActualInvestedToTotalInvestedColumn();
+  await migrateMasterNumericColumnsToDoublePrecision();
 }
 
 export async function ensureUserNetworthMasterRow(userId: string): Promise<void> {
@@ -191,17 +213,22 @@ export async function updateComputedFromHoldings(
 ): Promise<UserNetworthMaster> {
   await ensureUserNetworthMasterRow(userId);
   const sql = getNeonSql();
+  // Keep persisted master values integer-safe for legacy schemas that still use integer columns.
+  const investedGross = Math.round(Math.max(0, Number(input.investedGross) || 0));
+  const currentHoldingValue = Math.round(Number(input.currentHoldingValue) || 0);
   await sql`
     UPDATE user_networth_master
     SET
-      total_invested = GREATEST(0, ${input.investedGross}),
-      current_holding_value = ${input.currentHoldingValue},
-      unrealised_pnl = ${input.currentHoldingValue} - GREATEST(0, ${input.investedGross}),
+      total_invested = ${investedGross},
+      current_holding_value = ${currentHoldingValue},
+      unrealised_pnl = (${currentHoldingValue}::double precision - ${investedGross}::double precision),
       unrealised_pnl_pct = CASE
-        WHEN GREATEST(0, ${input.investedGross}) > 0
-        THEN ((${input.currentHoldingValue} - GREATEST(0, ${input.investedGross}))
-          / GREATEST(0, ${input.investedGross})) * 100
-        ELSE 0
+        WHEN ${investedGross}::double precision > 0
+        THEN (
+          (${currentHoldingValue}::double precision - ${investedGross}::double precision)
+          / ${investedGross}::double precision
+        ) * 100::double precision
+        ELSE 0::double precision
       END,
       updated_at = now()
     WHERE user_id = ${userId}

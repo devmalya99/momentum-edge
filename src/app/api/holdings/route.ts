@@ -62,6 +62,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, count: holdings.length, master });
   } catch (error) {
+    console.error('[POST /api/holdings] failed', error);
     const message = error instanceof Error ? error.message : 'Failed to save holdings';
     return NextResponse.json({ error: message }, { status: 500 });
   }

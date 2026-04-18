@@ -51,6 +51,8 @@ export default function Networth() {
     useActiveTradeLivePrices(trades);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStep, setImportStep] = useState<'uploading' | 'replacing' | 'rendering' | null>(null);
 
   const addNetworthAsset = () => {
     const newAsset = { id: crypto.randomUUID(), name: 'New Asset', value: 0 };
@@ -74,6 +76,8 @@ export default function Networth() {
     const file = e.target.files?.[0];
     if (!file) return;
     void (async () => {
+      setIsImporting(true);
+      setImportStep('uploading');
       try {
         const buf = await file.arrayBuffer();
         const wb = xlsx.read(buf, { type: 'array' });
@@ -165,6 +169,11 @@ export default function Networth() {
             }
         }
 
+        console.log('[Networth XLSX] parsed holdings (payload that replaces server holdings)', {
+          parsedHoldings,
+          parsedHoldingsCount: parsedHoldings.length,
+        });
+
         const res = await fetch('/api/holdings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -182,12 +191,18 @@ export default function Networth() {
           await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
         }
 
+        setImportStep('replacing');
         await replaceImportedHoldings(newTrades as any);
+        setImportStep('rendering');
+        await queryClient.invalidateQueries({ queryKey: ['networth-master'] });
         alert(`Holdings replaced successfully. Uploaded ${parsedHoldings.length} rows.`);
         
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err: any) {
         setError(err.message || 'Error parsing file.');
+      } finally {
+        setIsImporting(false);
+        setImportStep(null);
       }
     })();
   };
@@ -411,9 +426,11 @@ export default function Networth() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 text-xs font-bold bg-green-500/10 text-green-400 hover:bg-green-500/20 px-4 py-2 rounded-xl transition-all"
+                disabled={isImporting}
+                className="flex items-center gap-2 text-xs font-bold bg-green-500/10 text-green-400 hover:bg-green-500/20 disabled:opacity-60 disabled:cursor-not-allowed px-4 py-2 rounded-xl transition-all"
               >
-                <Upload size={14} /> Import Zerodha Holdings
+                {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload size={14} />}
+                {isImporting ? 'Importing...' : 'Import Zerodha Holdings'}
               </button>
               <button
                 onClick={addNetworthAsset}
@@ -423,6 +440,42 @@ export default function Networth() {
               </button>
           </div>
         </div>
+
+        {isImporting && (
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-blue-300">
+              Import In Progress
+            </div>
+            <div className="mt-2 space-y-1.5 text-sm text-gray-300">
+              <div className="flex items-center gap-2">
+                {importStep === 'uploading' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" />
+                ) : (
+                  <span className="text-green-400">✓</span>
+                )}
+                <span>Uploading the file</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {importStep === 'replacing' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" />
+                ) : importStep === 'rendering' ? (
+                  <span className="text-green-400">✓</span>
+                ) : (
+                  <span className="text-gray-500">•</span>
+                )}
+                <span>Replacing old data</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {importStep === 'rendering' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" />
+                ) : (
+                  <span className="text-gray-500">•</span>
+                )}
+                <span>Rendering new data</span>
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="space-y-3">
           {settings.networthAssets?.map(asset => {
