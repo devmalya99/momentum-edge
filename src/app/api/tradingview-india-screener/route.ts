@@ -3,9 +3,13 @@ import { fetchTradingViewIndiaScreenerStockScan } from '@/lib/tradingview-india-
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const data = await fetchTradingViewIndiaScreenerStockScan({ silent: true });
+    const screen = new URL(request.url).searchParams.get('screen');
+    const data = await fetchTradingViewIndiaScreenerStockScan({
+      silent: true,
+      screen: screen === 'short-term-pullback' ? 'short-term-pullback' : 'monthly',
+    });
     return NextResponse.json(data);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error';

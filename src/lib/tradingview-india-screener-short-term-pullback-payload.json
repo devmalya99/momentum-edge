@@ -1,0 +1,199 @@
+{
+  "columns": [
+    "ticker-view",
+    "close",
+    "type",
+    "typespecs",
+    "pricescale",
+    "minmov",
+    "fractional",
+    "minmove2",
+    "currency",
+    "change",
+    "Perf.W",
+    "Perf.1M",
+    "Perf.3M",
+    "Perf.6M",
+    "Perf.YTD",
+    "Perf.Y",
+    "Perf.5Y",
+    "Perf.10Y",
+    "Perf.All",
+    "Volatility.W",
+    "Volatility.M"
+  ],
+  "filter": [
+    {
+      "left": "EMA50",
+      "operation": "less",
+      "right": "close"
+    },
+    {
+      "left": "EMA20",
+      "operation": "in_range%",
+      "right": ["close", 0.95, 1]
+    },
+    {
+      "left": "EMA100",
+      "operation": "less",
+      "right": "close"
+    },
+    {
+      "left": "market_cap_basic",
+      "operation": "egreater",
+      "right": 6000000000
+    },
+    {
+      "left": "Perf.1M",
+      "operation": "in_range",
+      "right": [-5, 15]
+    },
+    {
+      "left": "Value.Traded",
+      "operation": "greater",
+      "right": 50000000
+    },
+    {
+      "left": "Perf.3M",
+      "operation": "greater",
+      "right": 0
+    },
+    {
+      "left": "RSI5|1M",
+      "operation": "greater",
+      "right": 60
+    },
+    {
+      "left": "Perf.6M",
+      "operation": "greater",
+      "right": 30
+    },
+    {
+      "left": "EMA20",
+      "operation": "greater",
+      "right": "EMA40"
+    },
+    {
+      "left": "EMA40",
+      "operation": "greater",
+      "right": "EMA89"
+    },
+    {
+      "left": "ATRP",
+      "operation": "in_range",
+      "right": [-5, 5]
+    },
+    {
+      "left": "is_primary",
+      "operation": "equal",
+      "right": true
+    }
+  ],
+  "ignore_unknown_fields": false,
+  "options": {
+    "lang": "en"
+  },
+  "range": [0, 100],
+  "sort": {
+    "sortBy": "Perf.6M",
+    "sortOrder": "desc"
+  },
+  "symbols": {},
+  "markets": ["india"],
+  "filter2": {
+    "operator": "and",
+    "operands": [
+      {
+        "operation": {
+          "operator": "or",
+          "operands": [
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "stock"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has",
+                      "right": ["common"]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "stock"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has",
+                      "right": ["preferred"]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "dr"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "fund"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has_none_of",
+                      "right": ["etf", "mutual", "closedend"]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "expression": {
+          "left": "typespecs",
+          "operation": "has_none_of",
+          "right": ["pre-ipo"]
+        }
+      }
+    ]
+  }
+}

@@ -1,16 +1,36 @@
 'use client';
 
-import { useEffect, useMemo, useCallback, useState } from 'react';
+import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Bookmark, BookmarkCheck, LineChart, Loader2, RefreshCcw } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
+  CheckCircle2,
+  Circle,
+  LineChart,
+  Loader2,
+  RefreshCcw,
+  Upload,
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
+import { useAthScannerGlobalQuery } from '@/features/52wScanner/useAthScannerGlobalQuery';
 import { use52wScannerQuery } from '@/features/52wScanner/use52wScannerQuery';
-import { useTradingViewMonthlyScannerQuery } from '@/features/52wScanner/useTradingViewMonthlyScannerQuery';
+import { useTradingViewIndiaScreenerQuery } from '@/features/52wScanner/useTradingViewIndiaScreenerQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
+import { parseAthRowsFromScreenerXlsx } from '@/lib/screener-ath-xlsx';
 import { toBseTradingViewQuerySymbol, toTradingViewSymbol } from '@/lib/tradingview-symbol';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useTradeStore } from '@/store/useTradeStore';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 function toTvSymbol(nseSymbol: string): string {
   return toTradingViewSymbol(nseSymbol);
@@ -21,27 +41,68 @@ function formatPrice(v: number | null): string {
   return v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-type ScannerTab = '52h' | 'monthly';
+type ScannerTab = '52h' | 'monthly' | 'short-term-pullback' | 'ath-scanner';
+
+function tabFromSearchParams(tabParam: string | null): ScannerTab {
+  if (tabParam === 'monthly') return 'monthly';
+  if (tabParam === 'short-term-pullback') return 'short-term-pullback';
+  if (tabParam === 'ath-scanner') return 'ath-scanner';
+  return '52h';
+}
+
+/** 0 reading → 1 workbook ready → 2 parsed (stockCount) → 3 saved → 4 refreshed & finished */
+type AthUploadProgressState =
+  | null
+  | {
+      fileName: string;
+      milestone: number;
+      stockCount: number | null;
+      error: string | null;
+    };
 
 export default function Scanner52wWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const querySymbol = searchParams.get('symbol');
-  const scannerTab: ScannerTab = searchParams.get('tab') === 'monthly' ? 'monthly' : '52h';
+  const scannerTab = tabFromSearchParams(searchParams.get('tab'));
 
+  const athXlsxInputRef = useRef<HTMLInputElement>(null);
+  const lastAthServerUpdatedAt = useRef<string | null>(null);
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
+  const [athParseError, setAthParseError] = useState<string | null>(null);
+  const [athUploadProgress, setAthUploadProgress] = useState<AthUploadProgressState>(null);
+  /** ATH list bookmark icons follow this list only (reset on each upload), not global watchlist membership. */
+  const [athWatchlistUiTickers, setAthWatchlistUiTickers] = useState<string[]>([]);
 
   const { data, isLoading, isFetching, error, refetch } = use52wScannerQuery();
   const rows = data?.data ?? [];
 
-  const monthlyQuery = useTradingViewMonthlyScannerQuery(scannerTab === 'monthly');
+  const monthlyQuery = useTradingViewIndiaScreenerQuery('monthly', scannerTab === 'monthly');
+  const pullbackQuery = useTradingViewIndiaScreenerQuery(
+    'short-term-pullback',
+    scannerTab === 'short-term-pullback',
+  );
   const monthlyRows = useMemo(
     () => (monthlyQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
     [monthlyQuery.data?.data],
   );
+  const pullbackRows = useMemo(
+    () => (pullbackQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
+    [pullbackQuery.data?.data],
+  );
+  const isTvTab = scannerTab === 'monthly' || scannerTab === 'short-term-pullback';
+  const isAthTab = scannerTab === 'ath-scanner';
+  const tvRows = scannerTab === 'monthly' ? monthlyRows : scannerTab === 'short-term-pullback' ? pullbackRows : [];
+  const tvQuery = scannerTab === 'monthly' ? monthlyQuery : scannerTab === 'short-term-pullback' ? pullbackQuery : null;
+
+  const athGlobalQuery = useAthScannerGlobalQuery(isAthTab);
+  const athRows = athGlobalQuery.data?.rows ?? [];
 
   const watchlist = useTradeStore((s) => s.watchlist);
   const toggleWatchlist = useTradeStore((s) => s.toggleWatchlist);
+  const addToWatchlist = useTradeStore((s) => s.addToWatchlist);
+  const removeFromWatchlist = useTradeStore((s) => s.removeFromWatchlist);
   const isBookmarked52h = useCallback(
     (nseSymbol: string) =>
       watchlist.some(
@@ -66,10 +127,10 @@ export default function Scanner52wWorkspace() {
   const setScannerTab = useCallback(
     (next: ScannerTab) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (next === 'monthly') {
-        params.set('tab', 'monthly');
-      } else {
+      if (next === '52h') {
         params.delete('tab');
+      } else {
+        params.set('tab', next);
       }
       const q = params.toString();
       router.replace(q ? `/52w-scanner?${q}` : `/52w-scanner`, { scroll: false });
@@ -78,24 +139,33 @@ export default function Scanner52wWorkspace() {
   );
 
   const selectedTvSymbol = useMemo(() => {
-    if (scannerTab === 'monthly') {
-      if (monthlyRows.length === 0) return querySymbol?.trim() ?? '';
-      if (querySymbol && monthlyRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
-      return monthlyRows[0].tvSymbol;
+    if (scannerTab === 'ath-scanner') {
+      if (athRows.length === 0) return querySymbol?.trim() ?? '';
+      if (querySymbol && athRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
+      return athRows[0].tvSymbol;
+    }
+    if (isTvTab) {
+      if (tvRows.length === 0) return querySymbol?.trim() ?? '';
+      if (querySymbol && tvRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
+      return tvRows[0].tvSymbol;
     }
     if (rows.length === 0) return querySymbol?.trim() ?? '';
     if (querySymbol && rows.some((r) => toTvSymbol(r.symbol) === querySymbol)) return querySymbol;
     return toTvSymbol(rows[0].symbol);
-  }, [scannerTab, monthlyRows, rows, querySymbol]);
+  }, [scannerTab, athRows, isTvTab, tvRows, rows, querySymbol]);
 
   const chartNseSymbol = useMemo(() => {
-    if (scannerTab === 'monthly') {
-      const item = monthlyRows.find((r) => r.tvSymbol === selectedTvSymbol);
+    if (scannerTab === 'ath-scanner') {
+      const r = athRows.find((x) => x.tvSymbol === selectedTvSymbol);
+      return r?.ticker ?? '';
+    }
+    if (isTvTab) {
+      const item = tvRows.find((row) => row.tvSymbol === selectedTvSymbol);
       return item?.isNse ? item.ticker : '';
     }
     const row = rows.find((r) => toTvSymbol(r.symbol) === selectedTvSymbol);
     return row ? row.symbol.trim().toUpperCase() : '';
-  }, [scannerTab, monthlyRows, rows, selectedTvSymbol]);
+  }, [scannerTab, athRows, isTvTab, tvRows, rows, selectedTvSymbol]);
 
   /** TradingView widget expects `BSE:ticker` when the screener returns `NSE:ticker`. */
   const tradingViewChartSymbol = useMemo(
@@ -115,30 +185,54 @@ export default function Scanner52wWorkspace() {
   }, [scannerTab, rows, querySymbol, router, searchParams]);
 
   useEffect(() => {
-    if (scannerTab !== 'monthly') return;
-    if (monthlyRows.length === 0) return;
-    if (!querySymbol || !monthlyRows.some((r) => r.tvSymbol === querySymbol)) {
+    if (!isTvTab) return;
+    if (tvRows.length === 0) return;
+    if (!querySymbol || !tvRows.some((r) => r.tvSymbol === querySymbol)) {
       const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', 'monthly');
-      params.set('symbol', monthlyRows[0].tvSymbol);
+      params.set('tab', scannerTab);
+      params.set('symbol', tvRows[0].tvSymbol);
       router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
     }
-  }, [scannerTab, monthlyRows, querySymbol, router, searchParams]);
+  }, [isTvTab, scannerTab, tvRows, querySymbol, router, searchParams]);
 
   useEffect(() => {
-    if (scannerTab !== 'monthly') return;
+    if (scannerTab !== 'ath-scanner') return;
+    if (athRows.length === 0) return;
+    if (!querySymbol || !athRows.some((r) => r.tvSymbol === querySymbol)) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', 'ath-scanner');
+      params.set('symbol', athRows[0].tvSymbol);
+      router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
+    }
+  }, [scannerTab, athRows, querySymbol, router, searchParams]);
+
+  useEffect(() => {
+    const u = athGlobalQuery.data?.updatedAt ?? null;
+    if (!u) return;
+    if (lastAthServerUpdatedAt.current !== null && u !== lastAthServerUpdatedAt.current) {
+      setAthWatchlistUiTickers([]);
+    }
+    lastAthServerUpdatedAt.current = u;
+  }, [athGlobalQuery.data?.updatedAt]);
+
+  useEffect(() => {
+    if (scannerTab !== 'ath-scanner') setAthUploadProgress(null);
+  }, [scannerTab]);
+
+  useEffect(() => {
+    if (!isTvTab) return;
     if (!chartNseSymbol && chartMode === 'kline') {
       setChartMode('tradingview');
     }
-  }, [scannerTab, chartNseSymbol, chartMode]);
+  }, [isTvTab, chartNseSymbol, chartMode]);
 
   const onSelect = useCallback(
     (tvSymbol: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (scannerTab === 'monthly') {
-        params.set('tab', 'monthly');
-      } else {
+      if (scannerTab === '52h') {
         params.delete('tab');
+      } else {
+        params.set('tab', scannerTab);
       }
       params.set('symbol', tvSymbol);
       router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
@@ -148,65 +242,410 @@ export default function Scanner52wWorkspace() {
 
   const onRefresh = useCallback(() => {
     if (scannerTab === 'monthly') void monthlyQuery.refetch();
+    else if (scannerTab === 'short-term-pullback') void pullbackQuery.refetch();
     else void refetch();
-  }, [scannerTab, monthlyQuery, refetch]);
+  }, [scannerTab, monthlyQuery, pullbackQuery, refetch]);
 
-  const listFetching = scannerTab === 'monthly' ? monthlyQuery.isFetching : isFetching;
-  const listLoading = scannerTab === 'monthly' ? monthlyQuery.isLoading : isLoading;
-  const listError = scannerTab === 'monthly' ? monthlyQuery.error : error;
+  const onAthToggleWatchlist = useCallback(
+    async (ticker: string, companyName: string) => {
+      const sym = ticker.trim().toUpperCase();
+      const listId = DEFAULT_WATCHLIST_LIST_ID;
+      const inGlobal = watchlist.some(
+        (w) => w.listId === listId && w.kind === 'equity' && w.symbol.trim().toUpperCase() === sym,
+      );
+      const inLocalUi = athWatchlistUiTickers.includes(sym);
+      const showingBookmarked = inLocalUi || inGlobal;
+      if (showingBookmarked) {
+        const existing = watchlist.find(
+          (w) => w.listId === listId && w.kind === 'equity' && w.symbol.trim().toUpperCase() === sym,
+        );
+        if (existing) await removeFromWatchlist(existing.id);
+        setAthWatchlistUiTickers((prev) => prev.filter((t) => t !== sym));
+        return;
+      }
+      await addToWatchlist({
+        listId,
+        kind: 'equity',
+        symbol: ticker,
+        companyName: companyName.trim() ? companyName : ticker,
+      });
+      const added = useTradeStore
+        .getState()
+        .watchlist.some(
+          (w) => w.listId === listId && w.kind === 'equity' && w.symbol.trim().toUpperCase() === sym,
+        );
+      if (added) setAthWatchlistUiTickers((prev) => (prev.includes(sym) ? prev : [...prev, sym]));
+    },
+    [addToWatchlist, removeFromWatchlist, watchlist, athWatchlistUiTickers],
+  );
+
+  const onAthXlsxChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setAthParseError(null);
+      setAthUploadProgress({ fileName: file.name, milestone: 0, stockCount: null, error: null });
+      const dismissProgress = (ms: number) => {
+        window.setTimeout(() => setAthUploadProgress(null), ms);
+      };
+      try {
+        const buf = await file.arrayBuffer();
+        setAthUploadProgress({ fileName: file.name, milestone: 1, stockCount: null, error: null });
+        const workbook = XLSX.read(buf, { type: 'array' });
+        const parsed = parseAthRowsFromScreenerXlsx(workbook);
+        if (parsed.length === 0) {
+          const msg =
+            'No Screener company rows found. Export a Screener screen to Excel (with /company/TICKER/ links) and try again.';
+          setAthParseError(msg);
+          setAthUploadProgress({
+            fileName: file.name,
+            milestone: 2,
+            stockCount: 0,
+            error: msg,
+          });
+          setAthWatchlistUiTickers([]);
+          dismissProgress(10_000);
+          return;
+        }
+        setAthUploadProgress({
+          fileName: file.name,
+          milestone: 2,
+          stockCount: parsed.length,
+          error: null,
+        });
+        const saveRes = await fetch('/api/ath-scanner/global', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceFileName: file.name, rows: parsed }),
+        });
+        const saveJson = (await saveRes.json().catch(() => ({}))) as { error?: string };
+        if (!saveRes.ok) {
+          const msg =
+            typeof saveJson.error === 'string' ? saveJson.error : 'Failed to save the list to the server.';
+          setAthParseError(msg);
+          setAthUploadProgress({
+            fileName: file.name,
+            milestone: 2,
+            stockCount: parsed.length,
+            error: msg,
+          });
+          dismissProgress(12_000);
+          return;
+        }
+        setAthUploadProgress({
+          fileName: file.name,
+          milestone: 3,
+          stockCount: parsed.length,
+          error: null,
+        });
+        setAthWatchlistUiTickers([]);
+        await queryClient.invalidateQueries({ queryKey: ['ath-scanner', 'global'] });
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('tab', 'ath-scanner');
+        params.set('symbol', parsed[0].tvSymbol);
+        router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
+        setAthUploadProgress({
+          fileName: file.name,
+          milestone: 4,
+          stockCount: parsed.length,
+          error: null,
+        });
+        dismissProgress(6500);
+      } catch {
+        const msg = 'Failed to read the Excel file.';
+        setAthParseError(msg);
+        setAthUploadProgress((prev) =>
+          prev
+            ? { ...prev, error: msg }
+            : { fileName: file.name, milestone: 0, stockCount: null, error: msg },
+        );
+        setAthWatchlistUiTickers([]);
+        dismissProgress(10_000);
+      }
+    },
+    [queryClient, router, searchParams],
+  );
+
+  const listFetching =
+    scannerTab === 'ath-scanner'
+      ? athGlobalQuery.isFetching
+      : isTvTab
+        ? (tvQuery?.isFetching ?? false)
+        : isFetching;
+  const listLoading =
+    scannerTab === 'ath-scanner'
+      ? athGlobalQuery.isPending
+      : isTvTab
+        ? (tvQuery?.isLoading ?? false)
+        : isLoading;
+  const listError =
+    scannerTab === 'ath-scanner' ? null : isTvTab ? (tvQuery?.error ?? null) : error;
 
   return (
     <div className="space-y-5">
+      <input
+        ref={athXlsxInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="sr-only"
+        aria-hidden
+        onChange={onAthXlsxChange}
+      />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-white">Scanner</h1>
           <p className="mt-1 text-sm text-gray-500">
             {scannerTab === 'monthly'
               ? 'Monthly high screen (TradingView India): pick a symbol for K-line (NSE) or TradingView on the right.'
-              : 'NSE 52-week highs on the left; select any stock for K-line (NSE) or TradingView on the right.'}
+              : scannerTab === 'short-term-pullback'
+                ? 'Short-term pullback screen (TradingView India): names pulling back after a rally—pick a symbol to chart.'
+                : scannerTab === 'ath-scanner'
+                  ? 'ATH list is shared for everyone: upload a Screener.in Excel export to replace it, or open the tab to use the latest list. Chart uses BSE:TICKER; bookmark a row to add it to your watchlist.'
+                  : 'NSE 52-week highs on the left; select any stock for K-line (NSE) or TradingView on the right.'}
           </p>
           {scannerTab === '52h' && data?.timestamp ? (
             <p className="mt-1 text-[11px] text-gray-600">Snapshot: {data.timestamp}</p>
           ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
+          {scannerTab === 'ath-scanner' && athGlobalQuery.data?.sourceFileName ? (
+            <p className="mt-1 text-[11px] text-gray-600">Current file: {athGlobalQuery.data.sourceFileName}</p>
+          ) : null}
+          {scannerTab === 'ath-scanner' && athGlobalQuery.data?.unavailable ? (
+            <p className="mt-1 text-[11px] text-amber-600/90">
+              Server database is not configured; ATH upload will not persist for others until DATABASE_URL is set.
+            </p>
+          ) : null}
+          <TooltipProvider delay={200}>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('52h')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === '52h'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  52 H
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  NSE names printing a new 52-week high—use this screen to spot momentum leadership and pick a
+                  symbol to chart without hunting tickers manually.
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('monthly')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === 'monthly'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  Monthly H
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  TradingView India monthly-high screener—surfaces names making fresh monthly highs for swing and
+                  trend context alongside the 52-week list.
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('short-term-pullback')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === 'short-term-pullback'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  Short Term Pullback
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  TradingView India screen for stocks in a short-term pullback after a broader rally—EMA stack and
+                  momentum filters, same chart flow as Monthly H.
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('ath-scanner')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === 'ath-scanner'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  ATH scanner
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  Shared ATH list from the database—any signed-in user can refresh the file for everyone. Symbols come
+                  from /company/TICKER/ URLs. Bookmark a row to add it only to your watchlist.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        </div>
+        {scannerTab !== 'ath-scanner' ? (
+          <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
             <button
               type="button"
-              onClick={() => setScannerTab('52h')}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                scannerTab === '52h'
-                  ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
-                  : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
-              }`}
+              onClick={onRefresh}
+              disabled={listFetching}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300 hover:bg-white/10 disabled:opacity-60"
             >
-              52 H
-            </button>
-            <button
-              type="button"
-              onClick={() => setScannerTab('monthly')}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                scannerTab === 'monthly'
-                  ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
-                  : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
-              }`}
-            >
-              Monthly H
+              {listFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Refresh
             </button>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={listFetching}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300 hover:bg-white/10 disabled:opacity-60"
-        >
-          {listFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          ) : (
-            <RefreshCcw className="h-3.5 w-3.5" aria-hidden />
-          )}
-          Refresh
-        </button>
+        ) : null}
       </div>
+
+      {scannerTab === 'ath-scanner' && athUploadProgress ? (
+        <div
+          className={`rounded-2xl border px-4 py-3 ${
+            athUploadProgress.error
+              ? 'border-red-500/30 bg-red-500/10'
+              : 'border-blue-500/25 bg-blue-500/[0.07]'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">ATH file upload</p>
+          <ul className="mt-3 space-y-2.5 text-sm text-gray-200">
+            <li className="flex items-start gap-2.5">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+              <span>
+                <span className="font-semibold text-white">File uploaded</span>
+                <span className="mt-0.5 block text-xs text-gray-500">{athUploadProgress.fileName}</span>
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {athUploadProgress.milestone >= 1 ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+              ) : athUploadProgress.milestone === 0 && !athUploadProgress.error ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-400" aria-hidden />
+              ) : (
+                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+              )}
+              <span>
+                <span className={athUploadProgress.milestone >= 1 ? 'font-medium text-white' : 'text-gray-500'}>
+                  Workbook loaded into memory
+                </span>
+                {athUploadProgress.milestone === 0 && !athUploadProgress.error ? (
+                  <span className="mt-0.5 block text-xs text-gray-500">Reading bytes from disk…</span>
+                ) : null}
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {(athUploadProgress.milestone >= 2 &&
+                athUploadProgress.stockCount != null &&
+                athUploadProgress.stockCount > 0) ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+              ) : athUploadProgress.milestone === 1 && !athUploadProgress.error ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-400" aria-hidden />
+              ) : athUploadProgress.error && athUploadProgress.stockCount === 0 ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden />
+              ) : (
+                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+              )}
+              <span>
+                <span
+                  className={
+                    athUploadProgress.milestone >= 2 &&
+                    athUploadProgress.stockCount != null &&
+                    athUploadProgress.stockCount > 0
+                      ? 'font-medium text-white'
+                      : 'text-gray-500'
+                  }
+                >
+                  Parsing complete
+                </span>
+                {athUploadProgress.milestone === 1 && !athUploadProgress.error ? (
+                  <span className="mt-0.5 block text-xs text-gray-500">Scanning Screener company links…</span>
+                ) : null}
+                {athUploadProgress.milestone >= 2 &&
+                athUploadProgress.stockCount != null &&
+                athUploadProgress.stockCount > 0 ? (
+                  <span className="mt-0.5 block text-xs text-emerald-200/90">
+                    Fetched{' '}
+                    <span className="font-mono font-bold text-emerald-100">
+                      {athUploadProgress.stockCount}
+                    </span>{' '}
+                    {athUploadProgress.stockCount === 1 ? 'stock' : 'stocks'} from the file
+                  </span>
+                ) : null}
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {athUploadProgress.milestone >= 3 && !athUploadProgress.error ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+              ) : athUploadProgress.milestone === 2 &&
+                (athUploadProgress.stockCount ?? 0) > 0 &&
+                !athUploadProgress.error ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-400" aria-hidden />
+              ) : athUploadProgress.error && (athUploadProgress.stockCount ?? 0) > 0 ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden />
+              ) : (
+                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+              )}
+              <span>
+                <span
+                  className={
+                    athUploadProgress.milestone >= 3 && !athUploadProgress.error
+                      ? 'font-medium text-white'
+                      : 'text-gray-500'
+                  }
+                >
+                  Shared scanner updated
+                </span>
+                {athUploadProgress.milestone === 2 && athUploadProgress.stockCount && !athUploadProgress.error ? (
+                  <span className="mt-0.5 block text-xs text-gray-500">Writing rows to the database…</span>
+                ) : null}
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              {athUploadProgress.milestone >= 4 && !athUploadProgress.error ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+              ) : athUploadProgress.milestone === 3 && !athUploadProgress.error ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-400" aria-hidden />
+              ) : athUploadProgress.error && athUploadProgress.milestone >= 3 ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden />
+              ) : (
+                <Circle className="mt-0.5 h-4 w-4 shrink-0 text-gray-600" aria-hidden />
+              )}
+              <span>
+                <span
+                  className={
+                    athUploadProgress.milestone >= 4 && !athUploadProgress.error
+                      ? 'font-medium text-emerald-100'
+                      : 'text-gray-500'
+                  }
+                >
+                  Scanner list refreshed
+                </span>
+                {athUploadProgress.milestone === 3 && !athUploadProgress.error ? (
+                  <span className="mt-0.5 block text-xs text-gray-500">Fetching the latest list for this screen…</span>
+                ) : null}
+                {athUploadProgress.milestone >= 4 && !athUploadProgress.error ? (
+                  <span className="mt-0.5 block text-xs text-emerald-200/80">
+                    ATH scanner is up to date — this panel will hide in a few seconds.
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          </ul>
+          {athUploadProgress.error ? (
+            <p className="mt-3 border-t border-white/10 pt-3 text-sm text-red-300">{athUploadProgress.error}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {listError ? (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-gray-300">
@@ -215,28 +654,86 @@ export default function Scanner52wWorkspace() {
             <span>
               {listError instanceof Error
                 ? listError.message
-                : scannerTab === 'monthly'
-                  ? 'Failed to load TradingView monthly screen.'
+                : isTvTab
+                  ? 'Failed to load TradingView screen.'
                   : 'Failed to load 52 week high data.'}
             </span>
           </div>
         </div>
       ) : null}
 
-      <div className="flex h-[min(max(480px,calc(100dvh-14rem)),880px)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#161618] lg:flex-row">
-        <aside className="flex max-h-[40%] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-white/10 lg:h-full lg:max-h-none lg:w-[min(100%,360px)] lg:border-b-0 lg:border-r">
-          <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-3">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-              {scannerTab === 'monthly'
-                ? `Monthly screen (${monthlyRows.length}${monthlyQuery.data?.totalCount != null ? ` / ${monthlyQuery.data.totalCount}` : ''})`
-                : `52W high stocks (${rows.length})`}
-            </span>
-            {listFetching || listLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" aria-hidden />
-            ) : null}
+      {isAthTab && athRows.length === 0 ? (
+        athGlobalQuery.isPending ? (
+          <div className="flex min-h-[min(520px,calc(100dvh-16rem))] flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-white/15 bg-[#161618] px-6 py-16 text-center">
+            <Loader2 className="h-9 w-9 animate-spin text-blue-400" aria-hidden />
+            <p className="text-sm text-gray-400">Loading shared ATH list…</p>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
-            {scannerTab === '52h' ? (
+        ) : (
+          <div className="flex min-h-[min(520px,calc(100dvh-16rem))] flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-white/15 bg-[#161618] px-6 py-16 text-center">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <Upload className="mx-auto h-10 w-10 text-blue-400" aria-hidden />
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">ATH scanner</p>
+              <p className="mt-2 max-w-md text-sm text-gray-500">
+                No shared list yet, or it failed to load. Export a Screener.in screen to Excel (.xlsx) and upload—rows
+                are stored for everyone. Bookmark a row to add it to your watchlist only.
+              </p>
+            </div>
+            {athGlobalQuery.isError ? (
+              <p className="max-w-md text-sm text-amber-400/90">
+                {athGlobalQuery.error instanceof Error ? athGlobalQuery.error.message : 'Could not load the shared list.'}
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => void athGlobalQuery.refetch()}
+                  className="font-semibold text-blue-300 underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => athXlsxInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-xl border border-blue-500/40 bg-blue-500/15 px-4 py-2.5 text-sm font-semibold text-blue-100 hover:bg-blue-500/25"
+            >
+              <Upload className="h-4 w-4" aria-hidden />
+              Choose Excel file
+            </button>
+            {athParseError ? <p className="max-w-md text-sm text-red-400">{athParseError}</p> : null}
+          </div>
+        )
+      ) : (
+        <div className="flex h-[min(max(480px,calc(100dvh-14rem)),880px)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#161618] lg:flex-row">
+          <aside className="flex max-h-[40%] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-white/10 lg:h-full lg:max-h-none lg:w-[min(100%,360px)] lg:border-b-0 lg:border-r">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/5 px-4 py-3">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                {scannerTab === 'monthly'
+                  ? `Monthly screen (${monthlyRows.length}${monthlyQuery.data?.totalCount != null ? ` / ${monthlyQuery.data.totalCount}` : ''})`
+                  : scannerTab === 'short-term-pullback'
+                    ? `Short-term pullback (${pullbackRows.length}${pullbackQuery.data?.totalCount != null ? ` / ${pullbackQuery.data.totalCount}` : ''})`
+                    : scannerTab === 'ath-scanner'
+                      ? `ATH list (${athRows.length})`
+                      : `52W high stocks (${rows.length})`}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {scannerTab === 'ath-scanner' ? (
+                  <button
+                    type="button"
+                    onClick={() => athXlsxInputRef.current?.click()}
+                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300 hover:bg-white/10"
+                  >
+                    Replace file
+                  </button>
+                ) : null}
+                {listFetching || listLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" aria-hidden />
+                ) : null}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+              {scannerTab === '52h' ? (
               listLoading ? (
                 <div className="px-3 py-8 text-center text-sm text-gray-500">Loading scanner list...</div>
               ) : rows.length === 0 ? (
@@ -311,15 +808,80 @@ export default function Scanner52wWorkspace() {
                   })}
                 </ul>
               )
+            ) : scannerTab === 'ath-scanner' ? (
+              <ul className="space-y-1">
+                {athRows.map((row, athIdx) => {
+                  const isSelected = row.tvSymbol === selectedTvSymbol;
+                  const sym = row.ticker.trim().toUpperCase();
+                  const bookmarked =
+                    athWatchlistUiTickers.includes(sym) || isBookmarkedTicker(row.ticker);
+                  return (
+                    <li key={`ath-${athIdx}-${sym}`}>
+                      <div
+                        className={`flex items-start gap-2 rounded-2xl border px-3 py-3 transition-colors ${
+                          isSelected
+                            ? 'border-blue-500/40 bg-blue-500/10 text-white'
+                            : 'border-transparent bg-transparent text-gray-300 hover:border-white/10 hover:bg-white/5'
+                        }`}
+                      >
+                        <button type="button" onClick={() => onSelect(row.tvSymbol)} className="min-w-0 flex-1 text-left">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-bold tracking-tight">{row.tvSymbol}</div>
+                              <div className="mt-0.5 truncate text-[11px] text-gray-500">{row.companyName}</div>
+                            </div>
+                            <span className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-gray-500">
+                              ATH
+                            </span>
+                          </div>
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            <a
+                              href={row.screenerUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="truncate text-blue-400/90 hover:underline"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              Screener
+                            </a>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void onAthToggleWatchlist(row.ticker, row.companyName);
+                          }}
+                          aria-label={
+                            bookmarked ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`
+                          }
+                          className={`shrink-0 rounded-lg border p-1 transition-colors ${
+                            bookmarked
+                              ? 'border-amber-400/30 bg-amber-500/10 text-amber-300'
+                              : 'border-white/10 text-gray-500 hover:border-white/20 hover:text-gray-300'
+                          }`}
+                        >
+                          {bookmarked ? (
+                            <BookmarkCheck className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <Bookmark className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : listLoading ? (
-              <div className="px-3 py-8 text-center text-sm text-gray-500">Loading monthly screen…</div>
-            ) : monthlyRows.length === 0 ? (
+              <div className="px-3 py-8 text-center text-sm text-gray-500">
+                {scannerTab === 'monthly' ? 'Loading monthly screen…' : 'Loading short-term pullback screen…'}
+              </div>
+            ) : tvRows.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-gray-500">
                 No symbols matched this TradingView screen right now.
               </div>
             ) : (
               <ul className="space-y-1">
-                {monthlyRows.map((row) => {
+                {tvRows.map((row) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
                   const ch = row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
@@ -385,8 +947,8 @@ export default function Scanner52wWorkspace() {
                 })}
               </ul>
             )}
-          </div>
-        </aside>
+            </div>
+          </aside>
 
         <div className="flex min-h-0 flex-1 flex-col bg-[#0f0f0f] p-3 sm:p-4">
           {selectedTvSymbol ? (
@@ -400,7 +962,7 @@ export default function Scanner52wWorkspace() {
                   <button
                     type="button"
                     onClick={() => setChartMode('kline')}
-                    disabled={scannerTab === 'monthly' && !chartNseSymbol}
+                    disabled={isTvTab && !chartNseSymbol}
                     className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       chartMode === 'kline'
                         ? 'bg-blue-500/30 text-blue-100'
@@ -444,13 +1006,16 @@ export default function Scanner52wWorkspace() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
-              {scannerTab === 'monthly' && listLoading
-                ? 'Loading monthly screen…'
+              {isTvTab && listLoading
+                ? scannerTab === 'monthly'
+                  ? 'Loading monthly screen…'
+                  : 'Loading short-term pullback screen…'
                 : 'Select a stock from the scanner to load a chart.'}
             </div>
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
