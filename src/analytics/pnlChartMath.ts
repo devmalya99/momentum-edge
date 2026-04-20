@@ -85,6 +85,8 @@ export type EquityPoint = {
 export type BuildEquityCurveOptions = {
   /** Include (0, 0) before the first trade so the path starts at zero P&amp;L. */
   includeOrigin?: boolean;
+  /** Starting equity value before applying per-row P&amp;L. */
+  initialEquity?: number;
 };
 
 /** Cumulative equity in the order trades appear (e.g. workbook row order). */
@@ -94,10 +96,14 @@ export function buildEquityCurve(
 ): EquityPoint[] {
   const rows = filterChartTrades(trades);
   const out: EquityPoint[] = [];
-  let equity = 0;
+  const initialEquity =
+    typeof options?.initialEquity === 'number' && Number.isFinite(options.initialEquity)
+      ? options.initialEquity
+      : 0;
+  let equity = initialEquity;
 
   if (options?.includeOrigin) {
-    out.push({ tradeIndex: 0, equity: 0, pnl: 0 });
+    out.push({ tradeIndex: 0, equity: initialEquity, pnl: 0 });
   }
 
   for (let i = 0; i < rows.length; i++) {

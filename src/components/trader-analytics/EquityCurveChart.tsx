@@ -57,6 +57,8 @@ type Props = {
   xAxisLabel?: string;
   /** Tooltip / semantics: cumulative profit vs generic equity. */
   cumulativeLabel?: string;
+  /** Y-axis behavior: keep zero baseline or auto-fit data range. */
+  yAxisMode?: 'zeroBased' | 'fitRange';
 };
 
 export default function EquityCurveChart({
@@ -66,10 +68,21 @@ export default function EquityCurveChart({
   curveOptions,
   xAxisLabel = 'Symbol row order (file)',
   cumulativeLabel = 'Cumulative',
+  yAxisMode = 'zeroBased',
 }: Props) {
   const data = useMemo(() => buildEquityCurve(trades, curveOptions), [trades, curveOptions]);
   const lastEquity = data.length ? data[data.length - 1]!.equity : 0;
   const lineColor = lastEquity >= 0 ? '#22c55e' : '#f87171';
+  const yDomain = useMemo(() => {
+    if (yAxisMode === 'zeroBased') return [0, 'auto'] as const;
+    const vals = data.map((d) => d.equity);
+    if (!vals.length) return ['auto', 'auto'] as const;
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const spread = max - min;
+    const pad = spread > 0 ? spread * 0.15 : Math.max(Math.abs(max) * 0.02, 100);
+    return [min - pad, max + pad] as const;
+  }, [data, yAxisMode]);
 
   if (data.length === 0) {
     return (
@@ -103,6 +116,7 @@ export default function EquityCurveChart({
           <YAxis
             stroke={AXIS}
             tick={{ fontSize: 10 }}
+            domain={yDomain}
             tickFormatter={(v) => formatInr(Number(v), { min: 0, max: 0 })}
             width={56}
           />

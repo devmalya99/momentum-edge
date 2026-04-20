@@ -12,6 +12,7 @@ import {
   LineChart,
   Loader2,
   RefreshCcw,
+  Sparkles,
   Upload,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -19,6 +20,7 @@ import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget'
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import { useAthScannerGlobalQuery } from '@/features/52wScanner/useAthScannerGlobalQuery';
 import { use52wScannerQuery } from '@/features/52wScanner/use52wScannerQuery';
+import StockAiOverviewSheet from '@/features/52wScanner/StockAiOverviewSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/52wScanner/useTradingViewIndiaScreenerQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { parseAthRowsFromScreenerXlsx } from '@/lib/screener-ath-xlsx';
@@ -70,6 +72,7 @@ export default function Scanner52wWorkspace() {
   const athXlsxInputRef = useRef<HTMLInputElement>(null);
   const lastAthServerUpdatedAt = useRef<string | null>(null);
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [athParseError, setAthParseError] = useState<string | null>(null);
   const [athUploadProgress, setAthUploadProgress] = useState<AthUploadProgressState>(null);
   /** ATH list bookmark icons follow this list only (reset on each upload), not global watchlist membership. */
@@ -165,6 +168,19 @@ export default function Scanner52wWorkspace() {
     }
     const row = rows.find((r) => toTvSymbol(r.symbol) === selectedTvSymbol);
     return row ? row.symbol.trim().toUpperCase() : '';
+  }, [scannerTab, athRows, isTvTab, tvRows, rows, selectedTvSymbol]);
+
+  const selectedStock = useMemo<{ ticker: string; companyName: string } | null>(() => {
+    if (scannerTab === 'ath-scanner') {
+      const r = athRows.find((x) => x.tvSymbol === selectedTvSymbol);
+      return r ? { ticker: r.ticker, companyName: r.companyName } : null;
+    }
+    if (isTvTab) {
+      const r = tvRows.find((x) => x.tvSymbol === selectedTvSymbol);
+      return r ? { ticker: r.ticker, companyName: r.companyName } : null;
+    }
+    const r = rows.find((x) => toTvSymbol(x.symbol) === selectedTvSymbol);
+    return r ? { ticker: r.symbol, companyName: r.companyName } : null;
   }, [scannerTab, athRows, isTvTab, tvRows, rows, selectedTvSymbol]);
 
   /** TradingView widget expects `BSE:ticker` when the screener returns `NSE:ticker`. */
@@ -488,8 +504,22 @@ export default function Scanner52wWorkspace() {
             </div>
           </TooltipProvider>
         </div>
-        {scannerTab !== 'ath-scanner' ? (
-          <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
+        <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setAiSheetOpen(true)}
+            disabled={!selectedStock}
+            aria-label={
+              selectedStock
+                ? `AI overview for ${selectedStock.ticker}`
+                : 'AI overview (select a stock first)'
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-purple-400/30 bg-purple-500/10 px-3 py-2 text-xs font-semibold text-purple-100 hover:bg-purple-500/20 disabled:opacity-50"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            AI
+          </button>
+          {scannerTab !== 'ath-scanner' ? (
             <button
               type="button"
               onClick={onRefresh}
@@ -503,9 +533,16 @@ export default function Scanner52wWorkspace() {
               )}
               Refresh
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
+
+      <StockAiOverviewSheet
+        open={aiSheetOpen}
+        onOpenChange={setAiSheetOpen}
+        ticker={selectedStock?.ticker ?? ''}
+        companyName={selectedStock?.companyName ?? ''}
+      />
 
       {scannerTab === 'ath-scanner' && athUploadProgress ? (
         <div

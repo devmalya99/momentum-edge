@@ -145,6 +145,7 @@ export default function Analytics() {
       })) ?? [],
     [record],
   );
+  const investmentStart = bankSaved > 0 ? bankSaved : 1000;
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -375,6 +376,31 @@ export default function Analytics() {
               curveOptions={{ includeOrigin: true }}
               xAxisLabel="Trade # (workbook row order)"
               cumulativeLabel="Net realized profit"
+            />
+          </div>
+        </section>
+      )}
+
+      {chartTrades.length > 0 && (
+        <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Investment growth (capital + P&amp;L)</h2>
+            <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
+              Starts from <span className="text-gray-400">real_invest_from_bank</span> and then applies
+              each row&apos;s <span className="text-gray-400">realised_pnl</span> in order (profit adds,
+              loss subtracts). Using{' '}
+              <span className="text-gray-300 font-mono">{formatInr(investmentStart)}</span>{' '}
+              as starting capital {bankSaved > 0 ? '(from saved bank value)' : '(fallback default)'}.
+            </p>
+          </div>
+          <div className="w-full min-h-[300px] min-w-0">
+            <EquityCurveChart
+              trades={chartTrades}
+              height={300}
+              curveOptions={{ includeOrigin: true, initialEquity: investmentStart }}
+              xAxisLabel="Trade # (workbook row order)"
+              cumulativeLabel="Investment value"
+              yAxisMode="fitRange"
             />
           </div>
         </section>

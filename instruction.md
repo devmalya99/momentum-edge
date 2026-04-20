@@ -30,3 +30,7 @@
 ### ✅ Step 6: Bug Fixing & UI Stability
 - **Fixed Kanban Drop Bug**: Resolved issue where trades couldn't be dropped into different columns in `PortfolioKanbanBoard`.
 - **Refined Event Bubbling**: Corrected `onDragOver` and `onDrop` propagation to ensure consistent state updates.
+
+### ✅ Step 7: AI Cost Analysis & Optimization Research
+- **Analyzed LLM Output Token Load**: Explored the 23-point checklist JSON generation which was driving output token costs up (1500-2500 tokens/request).
+- **Generated Optimization Strategies**: Proposed cache extension (7d -> 30d), structural prompt reductions (top 3 strengths/risks instead of 23 notes), and lazy-loading deep-dive data to slash API costs by up to 80%.
