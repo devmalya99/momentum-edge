@@ -19,6 +19,7 @@ function KanbanTradeRow(props: {
   trade: Trade;
   columnName: string;
   livePrice?: number;
+  stockTags?: Array<{ id: string; label: string }>;
   onCardClick: () => void;
   onSymbolClick: () => void;
   disabled: boolean;
@@ -32,6 +33,7 @@ function KanbanTradeRow(props: {
     trade,
     columnName,
     livePrice,
+    stockTags,
     onCardClick,
     onSymbolClick,
     disabled,
@@ -98,6 +100,7 @@ function KanbanTradeRow(props: {
         <TradeCard
           variant="kanban"
           trade={trade}
+          stockTags={stockTags}
           onClick={onCardClick}
           onSymbolClick={onSymbolClick}
           livePrice={trade.status === 'Active' ? livePrice : undefined}
@@ -112,6 +115,7 @@ function KanbanColumn(props: {
   trades: Trade[];
   livePriceBySymbol: Record<string, number | undefined>;
   totalBoardAllocation: number;
+  stockTagsBySymbol?: Map<string, Array<{ id: string; label: string }>>;
   onCardClick: (trade: Trade) => void;
   onSymbolClick: (trade: Trade) => void;
   isMoving: boolean;
@@ -128,6 +132,7 @@ function KanbanColumn(props: {
     trades,
     livePriceBySymbol,
     totalBoardAllocation,
+    stockTagsBySymbol,
     onCardClick,
     onSymbolClick,
     isMoving,
@@ -223,6 +228,7 @@ function KanbanColumn(props: {
             trade={trade}
             columnName={column.name}
             livePrice={livePriceBySymbol[trade.symbol.trim().toUpperCase()]}
+            stockTags={stockTagsBySymbol?.get(trade.symbol.trim().toUpperCase()) ?? []}
             onCardClick={() => onCardClick(trade)}
             onSymbolClick={() => onSymbolClick(trade)}
             disabled={isMoving}
@@ -242,6 +248,7 @@ export type PortfolioKanbanBoardProps = {
   trades: Trade[];
   tradeTypes: TradeTypeConfig[];
   livePriceBySymbol: Record<string, number | undefined>;
+  stockTagsBySymbol?: Map<string, Array<{ id: string; label: string }>>;
   onUpdateTradeType: (tradeId: string, typeName: string) => Promise<void>;
   onAddTradeType: (config: TradeTypeConfig) => Promise<void>;
   onCardClick: (trade: Trade) => void;
@@ -252,6 +259,7 @@ export default function PortfolioKanbanBoard({
   trades,
   tradeTypes,
   livePriceBySymbol,
+  stockTagsBySymbol,
   onUpdateTradeType,
   onAddTradeType,
   onCardClick,
@@ -462,6 +470,7 @@ export default function PortfolioKanbanBoard({
             trades={tradesByColumn.get(col.name) ?? []}
             livePriceBySymbol={livePriceBySymbol}
             totalBoardAllocation={totalBoardAllocation}
+            stockTagsBySymbol={stockTagsBySymbol}
             onCardClick={onCardClick}
             onSymbolClick={onSymbolClick}
             isMoving={movingId != null}

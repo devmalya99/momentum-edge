@@ -1,5 +1,9 @@
 import { getNeonSql } from '@/lib/db/ad-ratio';
-import type { StockOverviewAnalysis } from '@/lib/ai/stock-overview';
+import {
+  computeStockOverviewScore,
+  stockOverviewModelOutputSchema,
+  type StockOverviewAnalysis,
+} from '@/lib/ai/stock-overview';
 
 let schemaReady = false;
 
@@ -42,6 +46,13 @@ type RawDbRow = {
   objective_score: number;
   model: string;
   generated_at: string;
+  stale_after: string;
+};
+
+type RawScoreRow = {
+  ticker: string;
+  objective_score: number;
+  analysis_json: unknown;
   stale_after: string;
 };
 
@@ -119,4 +130,45 @@ export async function upsertAiStockOverviewCache(input: {
       stale_after = EXCLUDED.stale_after,
       updated_at = now()
   `;
+}
+
+export type AiStockOverviewScoreRow = {
+  ticker: string;
+  objectiveScore: number;
+  staleAfter: string;
+};
+
+export async function listAiStockOverviewScores(
+  tickers: string[],
+): Promise<AiStockOverviewScoreRow[]> {
+  await ensureAiStockOverviewCacheTable();
+  const normalized = Array.from(
+    new Set(
+      tickers
+        .map((ticker) => ticker.trim().toUpperCase())
+        .filter((ticker) => ticker.length > 0),
+    ),
+  );
+  if (normalized.length === 0) return [];
+  const sql = getNeonSql();
+  const rows = await sql`
+    SELECT
+      ticker,
+      objective_score,
+      analysis_json,
+      stale_after::text AS stale_after
+    FROM ai_stock_overview_cache
+    WHERE ticker = ANY(${normalized}::text[])
+  `;
+  return (rows as RawScoreRow[]).map((row) => {
+    const parsed = stockOverviewModelOutputSchema.safeParse(row.analysis_json);
+    const objectiveScore = parsed.success
+      ? computeStockOverviewScore(parsed.data).objectiveScore
+      : row.objective_score;
+    return {
+      ticker: row.ticker,
+      objectiveScore,
+      staleAfter: row.stale_after,
+    };
+  });
 }

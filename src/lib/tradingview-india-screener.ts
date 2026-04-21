@@ -1,10 +1,12 @@
 import tradingViewIndiaScreenerPayload from '@/lib/tradingview-india-screener-payload.json';
+import tradingViewIndiaScreener3mPayload from '@/lib/tradingview-india-screener-3m-payload.json';
+import tradingViewIndiaScreener1yTopPayload from '@/lib/tradingview-india-screener-1y-top-payload.json';
 import tradingViewIndiaScreenerShortTermPullbackPayload from '@/lib/tradingview-india-screener-short-term-pullback-payload.json';
 
 const TRADINGVIEW_INDIA_SCAN_URL =
   'https://scanner.tradingview.com/india/scan?label-product=screener-stock';
 
-export type TradingViewIndiaScreenerScreen = 'monthly' | 'short-term-pullback';
+export type TradingViewIndiaScreenerScreen = 'monthly' | '3m' | '1y-top' | 'short-term-pullback';
 
 export type TradingViewIndiaScreenerRow = {
   s: string;
@@ -71,7 +73,11 @@ export async function fetchTradingViewIndiaScreenerStockScan(options?: {
   const body =
     screen === 'short-term-pullback'
       ? tradingViewIndiaScreenerShortTermPullbackPayload
-      : tradingViewIndiaScreenerPayload;
+      : screen === '1y-top'
+        ? tradingViewIndiaScreener1yTopPayload
+      : screen === '3m'
+        ? tradingViewIndiaScreener3mPayload
+        : tradingViewIndiaScreenerPayload;
 
   const res = await fetch(TRADINGVIEW_INDIA_SCAN_URL, {
     method: 'POST',

@@ -3,6 +3,7 @@ import { Trade } from '../db';
 import { getVerdictColor, getTradeTypeColor, calculateProfitPercent } from '../utils/calculations';
 import { Clock, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
+import { compactStockTagLabel, stockTagBadgeClass } from '@/components/TechnicalChartScoreControl';
 
 interface TradeCardProps {
   trade: Trade;
@@ -13,6 +14,7 @@ interface TradeCardProps {
   livePrice?: number;
   /** Compact vertical card for Kanban columns (column already shows trade type). */
   variant?: 'default' | 'kanban';
+  stockTags?: Array<{ id: string; label: string }>;
 }
 
 export default function TradeCard({
@@ -21,6 +23,7 @@ export default function TradeCard({
   onSymbolClick,
   livePrice,
   variant = 'default',
+  stockTags = [],
 }: TradeCardProps) {
   const markPrice =
     trade.status === 'Active'
@@ -90,6 +93,23 @@ export default function TradeCard({
                 <span className="text-gray-600">·</span>
                 <span className="font-mono tabular-nums text-gray-400">{trade.positionSize} qty</span>
               </div>
+              {stockTags.length > 0 ? (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {stockTags.slice(0, 2).map((tag) => (
+                    <span
+                      key={`${trade.id}-${tag.id}`}
+                      className={`rounded border px-1 py-px text-[8px] font-bold ${stockTagBadgeClass(tag.id)}`}
+                    >
+                      {compactStockTagLabel(tag.label)}
+                    </span>
+                  ))}
+                  {stockTags.length > 2 ? (
+                    <span className="rounded border border-white/10 bg-white/5 px-1 py-px text-[8px] font-bold text-gray-300">
+                      +{stockTags.length - 2}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-0.5">
               <span
@@ -183,6 +203,23 @@ export default function TradeCard({
             {trade.type}
           </span>
         </div>
+        {stockTags.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1">
+            {stockTags.slice(0, 3).map((tag) => (
+              <span
+                key={`${trade.id}-row-${tag.id}`}
+                className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${stockTagBadgeClass(tag.id)}`}
+              >
+                {compactStockTagLabel(tag.label)}
+              </span>
+            ))}
+            {stockTags.length > 3 ? (
+              <span className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">
+                +{stockTags.length - 3}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <Clock size={12} />

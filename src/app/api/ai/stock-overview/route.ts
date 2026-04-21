@@ -91,9 +91,13 @@ export async function POST(request: Request) {
         const validatedCached = stockOverviewAnalysisSchema.safeParse(cached.analysis);
         if (validatedCached.success) {
           if (hasTargetYearEvidenceInFinancials(validatedCached.data)) {
+            const analysis = {
+              ...validatedCached.data,
+              score: computeStockOverviewScore(validatedCached.data),
+            };
             console.info(`${API_TAG} cache hit symbol=${ticker}`);
             return NextResponse.json({
-              analysis: validatedCached.data,
+              analysis,
               meta: {
                 model: cached.model,
                 cacheStatus: 'hit' as const,

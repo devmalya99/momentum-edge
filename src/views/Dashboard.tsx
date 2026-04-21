@@ -11,6 +11,7 @@ import TradeDetail from './TradeDetail'; // We'll create this next
 import { markPriceForTrade, useActiveTradeLivePrices } from '@/hooks/useActiveTradeLivePrices';
 import StockChartModal from '@/components/StockChartModal';
 import { toTradingViewSymbol } from '@/lib/tradingview-symbol';
+import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 
 export default function Dashboard() {
   const { trades, isLoading, settings, updateTrade, updateSettings } = useTradeStore();
@@ -165,6 +166,34 @@ export default function Dashboard() {
   }, [typeFilteredTrades, livePriceBySymbol, settings?.brokerMarginUsed]);
 
   const selectedTrade = trades.find(t => t.id === selectedTradeId);
+  const dashboardTagTickers = useMemo(
+    () => Array.from(new Set(trades.map((trade) => trade.symbol.trim().toUpperCase()))),
+    [trades],
+  );
+  const {
+    staticTags,
+    stockTagsByTicker,
+    isLoadingStaticTags,
+    isLoadingStockTags,
+    isFetchingStockTags,
+  } = useStockTagsQuery(dashboardTagTickers);
+  const staticTagLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tag of staticTags) map.set(tag.id, tag.label);
+    return map;
+  }, [staticTags]);
+  const stockTagsBySymbol = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; label: string }>>();
+    for (const [ticker, tagIds] of stockTagsByTicker.entries()) {
+      map.set(
+        ticker,
+        tagIds
+          .map((tagId) => ({ id: tagId, label: staticTagLabelById.get(tagId) ?? tagId }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      );
+    }
+    return map;
+  }, [stockTagsByTicker, staticTagLabelById]);
 
   const handleKanbanUpdateType = useCallback(
     async (tradeId: string, typeName: string) => {
@@ -274,6 +303,22 @@ export default function Dashboard() {
           ) : null}
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#161618] px-3 py-2 text-[11px] text-gray-400">
+        {isLoadingStaticTags || isLoadingStockTags ? (
+          <>
+            <span className="h-3 w-24 animate-pulse rounded bg-white/10" />
+            <span className="h-3 w-16 animate-pulse rounded bg-white/10" />
+            <span className="h-3 w-20 animate-pulse rounded bg-white/10" />
+          </>
+        ) : isFetchingStockTags ? (
+          <span className="inline-flex items-center gap-1 text-blue-300">
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            Refreshing stock tags...
+          </span>
+        ) : (
+          <span>Stock tags loaded for dashboard symbols.</span>
+        )}
+      </div>
 
       {activeTypeBreakdown.rows.length > 0 && (
         <div className="relative overflow-hidden p-6 rounded-[24px] bg-linear-to-b from-[#06141c] to-[#0a0a0c] border border-cyan-500/10 shadow-lg shadow-cyan-900/5">
@@ -460,6 +505,7 @@ export default function Dashboard() {
                 trades={kanbanDisplayTrades}
                 tradeTypes={settings.tradeTypes ?? []}
                 livePriceBySymbol={livePriceBySymbol}
+                stockTagsBySymbol={stockTagsBySymbol}
                 onUpdateTradeType={handleKanbanUpdateType}
                 onAddTradeType={handleKanbanAddColumn}
                 onCardClick={(t) => setSelectedTradeId(t.id)}
@@ -513,6 +559,7 @@ export default function Dashboard() {
                   >
                     <TradeCard
                       trade={trade}
+                      stockTags={stockTagsBySymbol.get(trade.symbol.trim().toUpperCase()) ?? []}
                       onClick={() => setSelectedTradeId(trade.id)}
                       onSymbolClick={() => setChartSymbol(toTradingViewSymbol(trade.symbol))}
                       livePrice={

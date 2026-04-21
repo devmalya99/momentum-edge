@@ -18,13 +18,18 @@ import {
 import * as XLSX from 'xlsx';
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
+import TechnicalChartScoreControl, {
+  compactStockTagLabel,
+  stockTagBadgeClass,
+} from '@/components/TechnicalChartScoreControl';
 import { useAthScannerGlobalQuery } from '@/features/52wScanner/useAthScannerGlobalQuery';
-import { use52wScannerQuery } from '@/features/52wScanner/use52wScannerQuery';
 import StockAiOverviewSheet from '@/features/52wScanner/StockAiOverviewSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/52wScanner/useTradingViewIndiaScreenerQuery';
+import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
+import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { parseAthRowsFromScreenerXlsx } from '@/lib/screener-ath-xlsx';
-import { toBseTradingViewQuerySymbol, toTradingViewSymbol } from '@/lib/tradingview-symbol';
+import { toBseTradingViewQuerySymbol } from '@/lib/tradingview-symbol';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useTradeStore } from '@/store/useTradeStore';
 import {
@@ -34,19 +39,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-function toTvSymbol(nseSymbol: string): string {
-  return toTradingViewSymbol(nseSymbol);
-}
-
 function formatPrice(v: number | null): string {
   if (v == null) return '—';
   return v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
-type ScannerTab = '52h' | 'monthly' | 'short-term-pullback' | 'ath-scanner';
+type ScannerTab = '52h' | 'monthly' | '3m' | '1y-top' | 'short-term-pullback' | 'ath-scanner';
 
 function tabFromSearchParams(tabParam: string | null): ScannerTab {
   if (tabParam === 'monthly') return 'monthly';
+  if (tabParam === '3m') return '3m';
+  if (tabParam === '1y-top') return '1y-top';
   if (tabParam === 'short-term-pullback') return 'short-term-pullback';
   if (tabParam === 'ath-scanner') return 'ath-scanner';
   return '52h';
@@ -78,13 +81,17 @@ export default function Scanner52wWorkspace() {
   /** ATH list bookmark icons follow this list only (reset on each upload), not global watchlist membership. */
   const [athWatchlistUiTickers, setAthWatchlistUiTickers] = useState<string[]>([]);
 
-  const { data, isLoading, isFetching, error, refetch } = use52wScannerQuery();
-  const rows = data?.data ?? [];
-
+  const scanner52hQuery = useTradingViewIndiaScreenerQuery('monthly', scannerTab === '52h');
   const monthlyQuery = useTradingViewIndiaScreenerQuery('monthly', scannerTab === 'monthly');
+  const threeMonthQuery = useTradingViewIndiaScreenerQuery('3m', scannerTab === '3m');
+  const oneYearTopQuery = useTradingViewIndiaScreenerQuery('1y-top', scannerTab === '1y-top');
   const pullbackQuery = useTradingViewIndiaScreenerQuery(
     'short-term-pullback',
     scannerTab === 'short-term-pullback',
+  );
+  const scanner52hRows = useMemo(
+    () => (scanner52hQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
+    [scanner52hQuery.data?.data],
   );
   const monthlyRows = useMemo(
     () => (monthlyQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
@@ -94,28 +101,59 @@ export default function Scanner52wWorkspace() {
     () => (pullbackQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
     [pullbackQuery.data?.data],
   );
-  const isTvTab = scannerTab === 'monthly' || scannerTab === 'short-term-pullback';
+  const threeMonthRows = useMemo(
+    () => (threeMonthQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
+    [threeMonthQuery.data?.data],
+  );
+  const oneYearTopRows = useMemo(
+    () => (oneYearTopQuery.data?.data ?? []).map(tradingViewScreenerRowToListItem),
+    [oneYearTopQuery.data?.data],
+  );
+  const isTvTab =
+    scannerTab === '52h' ||
+    scannerTab === 'monthly' ||
+    scannerTab === '3m' ||
+    scannerTab === '1y-top' ||
+    scannerTab === 'short-term-pullback';
   const isAthTab = scannerTab === 'ath-scanner';
-  const tvRows = scannerTab === 'monthly' ? monthlyRows : scannerTab === 'short-term-pullback' ? pullbackRows : [];
-  const tvQuery = scannerTab === 'monthly' ? monthlyQuery : scannerTab === 'short-term-pullback' ? pullbackQuery : null;
+  const tvRows =
+    scannerTab === '52h'
+      ? scanner52hRows
+      : scannerTab === 'monthly'
+        ? monthlyRows
+        : scannerTab === '3m'
+          ? threeMonthRows
+        : scannerTab === '1y-top'
+          ? oneYearTopRows
+          : scannerTab === 'short-term-pullback'
+            ? pullbackRows
+            : [];
+  const tvQuery =
+    scannerTab === '52h'
+      ? scanner52hQuery
+      : scannerTab === 'monthly'
+        ? monthlyQuery
+        : scannerTab === '3m'
+          ? threeMonthQuery
+        : scannerTab === '1y-top'
+          ? oneYearTopQuery
+          : scannerTab === 'short-term-pullback'
+            ? pullbackQuery
+            : null;
 
   const athGlobalQuery = useAthScannerGlobalQuery(isAthTab);
   const athRows = athGlobalQuery.data?.rows ?? [];
+  const scannerListTickers = useMemo(() => {
+    if (scannerTab === 'ath-scanner') return athRows.map((row) => row.ticker);
+    if (isTvTab) return tvRows.map((row) => row.ticker);
+    return [];
+  }, [scannerTab, athRows, isTvTab, tvRows]);
+  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(scannerListTickers);
 
   const watchlist = useTradeStore((s) => s.watchlist);
   const toggleWatchlist = useTradeStore((s) => s.toggleWatchlist);
   const addToWatchlist = useTradeStore((s) => s.addToWatchlist);
   const removeFromWatchlist = useTradeStore((s) => s.removeFromWatchlist);
-  const isBookmarked52h = useCallback(
-    (nseSymbol: string) =>
-      watchlist.some(
-        (w) =>
-          w.listId === DEFAULT_WATCHLIST_LIST_ID &&
-          w.kind === 'equity' &&
-          w.symbol.trim().toUpperCase() === nseSymbol.trim().toUpperCase(),
-      ),
-    [watchlist],
-  );
   const isBookmarkedTicker = useCallback(
     (ticker: string) =>
       watchlist.some(
@@ -141,21 +179,56 @@ export default function Scanner52wWorkspace() {
     [router, searchParams],
   );
 
+  const {
+    staticTags,
+    stockTagsByTicker,
+    isLoadingStaticTags,
+    isLoadingStockTags,
+    isFetchingStockTags,
+    saveTags,
+    isSavingTags,
+  } = useStockTagsQuery(scannerListTickers);
+  const staticTagLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const tag of staticTags) map.set(tag.id, tag.label);
+    return map;
+  }, [staticTags]);
+  const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
+  const toggleTagFilter = useCallback((tagId: string) => {
+    setActiveTagFilters((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
+    );
+  }, []);
+  const matchesActiveTagFilter = useCallback(
+    (ticker: string) => {
+      if (activeTagFilters.length === 0) return true;
+      const tagIds = stockTagsByTicker.get(ticker.trim().toUpperCase()) ?? [];
+      if (tagIds.length === 0) return true;
+      return tagIds.some((tagId) => activeTagFilters.includes(tagId));
+    },
+    [activeTagFilters, stockTagsByTicker],
+  );
+  const filteredTvRows = useMemo(
+    () => tvRows.filter((row) => matchesActiveTagFilter(row.ticker)),
+    [tvRows, matchesActiveTagFilter],
+  );
+  const filteredAthRows = useMemo(
+    () => athRows.filter((row) => matchesActiveTagFilter(row.ticker)),
+    [athRows, matchesActiveTagFilter],
+  );
   const selectedTvSymbol = useMemo(() => {
     if (scannerTab === 'ath-scanner') {
-      if (athRows.length === 0) return querySymbol?.trim() ?? '';
-      if (querySymbol && athRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
-      return athRows[0].tvSymbol;
+      if (filteredAthRows.length === 0) return '';
+      if (querySymbol && filteredAthRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
+      return filteredAthRows[0].tvSymbol;
     }
     if (isTvTab) {
-      if (tvRows.length === 0) return querySymbol?.trim() ?? '';
-      if (querySymbol && tvRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
-      return tvRows[0].tvSymbol;
+      if (filteredTvRows.length === 0) return '';
+      if (querySymbol && filteredTvRows.some((r) => r.tvSymbol === querySymbol)) return querySymbol;
+      return filteredTvRows[0].tvSymbol;
     }
-    if (rows.length === 0) return querySymbol?.trim() ?? '';
-    if (querySymbol && rows.some((r) => toTvSymbol(r.symbol) === querySymbol)) return querySymbol;
-    return toTvSymbol(rows[0].symbol);
-  }, [scannerTab, athRows, isTvTab, tvRows, rows, querySymbol]);
+    return querySymbol?.trim() ?? '';
+  }, [scannerTab, filteredAthRows, isTvTab, filteredTvRows, querySymbol]);
 
   const chartNseSymbol = useMemo(() => {
     if (scannerTab === 'ath-scanner') {
@@ -166,9 +239,8 @@ export default function Scanner52wWorkspace() {
       const item = tvRows.find((row) => row.tvSymbol === selectedTvSymbol);
       return item?.isNse ? item.ticker : '';
     }
-    const row = rows.find((r) => toTvSymbol(r.symbol) === selectedTvSymbol);
-    return row ? row.symbol.trim().toUpperCase() : '';
-  }, [scannerTab, athRows, isTvTab, tvRows, rows, selectedTvSymbol]);
+    return '';
+  }, [scannerTab, athRows, isTvTab, tvRows, selectedTvSymbol]);
 
   const selectedStock = useMemo<{ ticker: string; companyName: string } | null>(() => {
     if (scannerTab === 'ath-scanner') {
@@ -179,9 +251,9 @@ export default function Scanner52wWorkspace() {
       const r = tvRows.find((x) => x.tvSymbol === selectedTvSymbol);
       return r ? { ticker: r.ticker, companyName: r.companyName } : null;
     }
-    const r = rows.find((x) => toTvSymbol(x.symbol) === selectedTvSymbol);
-    return r ? { ticker: r.symbol, companyName: r.companyName } : null;
-  }, [scannerTab, athRows, isTvTab, tvRows, rows, selectedTvSymbol]);
+    return null;
+  }, [scannerTab, athRows, isTvTab, tvRows, selectedTvSymbol]);
+  const technicalScoreTicker = selectedStock?.ticker.trim().toUpperCase() ?? '';
 
   /** TradingView widget expects `BSE:ticker` when the screener returns `NSE:ticker`. */
   const tradingViewChartSymbol = useMemo(
@@ -190,37 +262,26 @@ export default function Scanner52wWorkspace() {
   );
 
   useEffect(() => {
-    if (scannerTab !== '52h') return;
-    if (rows.length === 0) return;
-    if (!querySymbol || !rows.some((r) => toTvSymbol(r.symbol) === querySymbol)) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('tab');
-      params.set('symbol', toTvSymbol(rows[0].symbol));
-      router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
-    }
-  }, [scannerTab, rows, querySymbol, router, searchParams]);
-
-  useEffect(() => {
     if (!isTvTab) return;
-    if (tvRows.length === 0) return;
-    if (!querySymbol || !tvRows.some((r) => r.tvSymbol === querySymbol)) {
+    if (filteredTvRows.length === 0) return;
+    if (!querySymbol || !filteredTvRows.some((r) => r.tvSymbol === querySymbol)) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', scannerTab);
-      params.set('symbol', tvRows[0].tvSymbol);
+      params.set('symbol', filteredTvRows[0].tvSymbol);
       router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
     }
-  }, [isTvTab, scannerTab, tvRows, querySymbol, router, searchParams]);
+  }, [isTvTab, scannerTab, filteredTvRows, querySymbol, router, searchParams]);
 
   useEffect(() => {
     if (scannerTab !== 'ath-scanner') return;
-    if (athRows.length === 0) return;
-    if (!querySymbol || !athRows.some((r) => r.tvSymbol === querySymbol)) {
+    if (filteredAthRows.length === 0) return;
+    if (!querySymbol || !filteredAthRows.some((r) => r.tvSymbol === querySymbol)) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', 'ath-scanner');
-      params.set('symbol', athRows[0].tvSymbol);
+      params.set('symbol', filteredAthRows[0].tvSymbol);
       router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
     }
-  }, [scannerTab, athRows, querySymbol, router, searchParams]);
+  }, [scannerTab, filteredAthRows, querySymbol, router, searchParams]);
 
   useEffect(() => {
     const u = athGlobalQuery.data?.updatedAt ?? null;
@@ -257,10 +318,12 @@ export default function Scanner52wWorkspace() {
   );
 
   const onRefresh = useCallback(() => {
-    if (scannerTab === 'monthly') void monthlyQuery.refetch();
+    if (scannerTab === '52h') void scanner52hQuery.refetch();
+    else if (scannerTab === 'monthly') void monthlyQuery.refetch();
+    else if (scannerTab === '3m') void threeMonthQuery.refetch();
+    else if (scannerTab === '1y-top') void oneYearTopQuery.refetch();
     else if (scannerTab === 'short-term-pullback') void pullbackQuery.refetch();
-    else void refetch();
-  }, [scannerTab, monthlyQuery, pullbackQuery, refetch]);
+  }, [scannerTab, scanner52hQuery, monthlyQuery, threeMonthQuery, oneYearTopQuery, pullbackQuery]);
 
   const onAthToggleWatchlist = useCallback(
     async (ticker: string, companyName: string) => {
@@ -394,9 +457,9 @@ export default function Scanner52wWorkspace() {
       ? athGlobalQuery.isPending
       : isTvTab
         ? (tvQuery?.isLoading ?? false)
-        : isLoading;
+        : false;
   const listError =
-    scannerTab === 'ath-scanner' ? null : isTvTab ? (tvQuery?.error ?? null) : error;
+    scannerTab === 'ath-scanner' ? null : isTvTab ? (tvQuery?.error ?? null) : null;
 
   return (
     <div className="space-y-5">
@@ -414,15 +477,16 @@ export default function Scanner52wWorkspace() {
           <p className="mt-1 text-sm text-gray-500">
             {scannerTab === 'monthly'
               ? 'Monthly high screen (TradingView India): pick a symbol for K-line (NSE) or TradingView on the right.'
+              : scannerTab === '3m'
+                ? '3M momentum screen (TradingView India): strong 3-month performers with liquidity and technical strength filters.'
+                : scannerTab === '1y-top'
+                  ? '1Y Top screen (TradingView India): strongest 1-year movers with liquidity and market cap filters.'
               : scannerTab === 'short-term-pullback'
                 ? 'Short-term pullback screen (TradingView India): names pulling back after a rally—pick a symbol to chart.'
                 : scannerTab === 'ath-scanner'
                   ? 'ATH list is shared for everyone: upload a Screener.in Excel export to replace it, or open the tab to use the latest list. Chart uses BSE:TICKER; bookmark a row to add it to your watchlist.'
-                  : 'NSE 52-week highs on the left; select any stock for K-line (NSE) or TradingView on the right.'}
+                  : '52W H scanner (TradingView India): select any symbol to view K-line (NSE) or TradingView chart on the right.'}
           </p>
-          {scannerTab === '52h' && data?.timestamp ? (
-            <p className="mt-1 text-[11px] text-gray-600">Snapshot: {data.timestamp}</p>
-          ) : null}
           {scannerTab === 'ath-scanner' && athGlobalQuery.data?.sourceFileName ? (
             <p className="mt-1 text-[11px] text-gray-600">Current file: {athGlobalQuery.data.sourceFileName}</p>
           ) : null}
@@ -446,8 +510,7 @@ export default function Scanner52wWorkspace() {
                   52 H
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs text-left leading-snug">
-                  NSE names printing a new 52-week high—use this screen to spot momentum leadership and pick a
-                  symbol to chart without hunting tickers manually.
+                  TradingView India 52W high scanner using your custom payload and filters.
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -465,6 +528,38 @@ export default function Scanner52wWorkspace() {
                 <TooltipContent side="top" className="max-w-xs text-left leading-snug">
                   TradingView India monthly-high screener—surfaces names making fresh monthly highs for swing and
                   trend context alongside the 52-week list.
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('3m')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === '3m'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  3 M
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  TradingView India 3-month momentum screen—focuses on strong relative strength and liquidity for swing setups.
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => setScannerTab('1y-top')}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    scannerTab === '1y-top'
+                      ? 'border-blue-500/50 bg-blue-500/15 text-blue-100'
+                      : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                  }`}
+                >
+                  1Y Top
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-left leading-snug">
+                  TradingView India 1-year top performers screen - sorted by 1Y returns with liquidity and market-cap filters.
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -746,13 +841,19 @@ export default function Scanner52wWorkspace() {
           <aside className="flex max-h-[40%] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-white/10 lg:h-full lg:max-h-none lg:w-[min(100%,360px)] lg:border-b-0 lg:border-r">
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/5 px-4 py-3">
               <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                {scannerTab === 'monthly'
-                  ? `Monthly screen (${monthlyRows.length}${monthlyQuery.data?.totalCount != null ? ` / ${monthlyQuery.data.totalCount}` : ''})`
+                {scannerTab === '52h'
+                  ? `52W H scanner (${filteredTvRows.length}${scanner52hQuery.data?.totalCount != null ? ` / ${scanner52hQuery.data.totalCount}` : ''})`
+                  : scannerTab === 'monthly'
+                  ? `Monthly screen (${filteredTvRows.length}${monthlyQuery.data?.totalCount != null ? ` / ${monthlyQuery.data.totalCount}` : ''})`
+                  : scannerTab === '3m'
+                    ? `3M screen (${filteredTvRows.length}${threeMonthQuery.data?.totalCount != null ? ` / ${threeMonthQuery.data.totalCount}` : ''})`
+                  : scannerTab === '1y-top'
+                    ? `1Y Top (${filteredTvRows.length}${oneYearTopQuery.data?.totalCount != null ? ` / ${oneYearTopQuery.data.totalCount}` : ''})`
                   : scannerTab === 'short-term-pullback'
-                    ? `Short-term pullback (${pullbackRows.length}${pullbackQuery.data?.totalCount != null ? ` / ${pullbackQuery.data.totalCount}` : ''})`
+                    ? `Short-term pullback (${filteredTvRows.length}${pullbackQuery.data?.totalCount != null ? ` / ${pullbackQuery.data.totalCount}` : ''})`
                     : scannerTab === 'ath-scanner'
-                      ? `ATH list (${athRows.length})`
-                      : `52W high stocks (${rows.length})`}
+                      ? `ATH list (${filteredAthRows.length})`
+                      : `Scanner (${filteredTvRows.length})`}
               </span>
               <div className="flex shrink-0 items-center gap-2">
                 {scannerTab === 'ath-scanner' ? (
@@ -769,85 +870,31 @@ export default function Scanner52wWorkspace() {
                 ) : null}
               </div>
             </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-white/5 px-4 py-2">
+              <span className="mr-1 text-[9px] font-bold uppercase tracking-wide text-gray-600">Tags</span>
+              {staticTags.map((tag) => {
+                const active = activeTagFilters.includes(tag.id);
+                return (
+                  <button
+                    key={`scanner-tag-filter-${tag.id}`}
+                    type="button"
+                    onClick={() => toggleTagFilter(tag.id)}
+                    className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${active ? stockTagBadgeClass(tag.id) : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20 hover:text-gray-200'}`}
+                  >
+                    {compactStockTagLabel(tag.label)}
+                  </button>
+                );
+              })}
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
-              {scannerTab === '52h' ? (
-              listLoading ? (
-                <div className="px-3 py-8 text-center text-sm text-gray-500">Loading scanner list...</div>
-              ) : rows.length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-gray-500">
-                  No 52-week high stocks returned by NSE right now.
-                </div>
-              ) : (
-                <ul className="space-y-1">
-                  {rows.map((row) => {
-                    const tvSymbol = toTvSymbol(row.symbol);
-                    const isSelected = tvSymbol === selectedTvSymbol;
-                    const isPositive = (row.change ?? 0) >= 0;
-                    const bookmarked = isBookmarked52h(row.symbol);
-                    return (
-                      <li key={row.symbol}>
-                        <div
-                          className={`flex items-start gap-2 rounded-2xl border px-3 py-3 transition-colors ${
-                            isSelected
-                              ? 'border-blue-500/40 bg-blue-500/10 text-white'
-                              : 'border-transparent bg-transparent text-gray-300 hover:border-white/10 hover:bg-white/5'
-                          }`}
-                        >
-                          <button type="button" onClick={() => onSelect(tvSymbol)} className="min-w-0 flex-1 text-left">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="font-bold tracking-tight">{row.symbol}</div>
-                                <div className="mt-0.5 truncate text-[11px] text-gray-500">{row.companyName}</div>
-                              </div>
-                              <span
-                                className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                                  isPositive ? 'text-green-300' : 'text-red-300'
-                                }`}
-                              >
-                                {row.pChange == null ? '—' : `${row.pChange.toFixed(2)}%`}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
-                              <span>LTP ₹{formatPrice(row.ltp)}</span>
-                              <span>New high ₹{formatPrice(row.new52WHL)}</span>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void toggleWatchlist({
-                                listId: DEFAULT_WATCHLIST_LIST_ID,
-                                kind: 'equity',
-                                symbol: row.symbol,
-                                companyName: row.companyName,
-                              });
-                            }}
-                            aria-label={
-                              bookmarked
-                                ? `Remove ${row.symbol} from watchlist`
-                                : `Add ${row.symbol} to watchlist`
-                            }
-                            className={`shrink-0 rounded-lg border p-1 transition-colors ${
-                              bookmarked
-                                ? 'border-amber-400/30 bg-amber-500/10 text-amber-300'
-                                : 'border-white/10 text-gray-500 hover:border-white/20 hover:text-gray-300'
-                            }`}
-                          >
-                            {bookmarked ? (
-                              <BookmarkCheck className="h-3.5 w-3.5" aria-hidden />
-                            ) : (
-                              <Bookmark className="h-3.5 w-3.5" aria-hidden />
-                            )}
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )
-            ) : scannerTab === 'ath-scanner' ? (
-              <ul className="space-y-1">
-                {athRows.map((row, athIdx) => {
+              {scannerTab === 'ath-scanner' ? (
+                filteredAthRows.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-gray-500">
+                    No symbols match the selected tag filter.
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {filteredAthRows.map((row, athIdx) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
                   const sym = row.ticker.trim().toUpperCase();
                   const bookmarked =
@@ -864,7 +911,26 @@ export default function Scanner52wWorkspace() {
                         <button type="button" onClick={() => onSelect(row.tvSymbol)} className="min-w-0 flex-1 text-left">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="font-bold tracking-tight">{row.tvSymbol}</div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold tracking-tight">{row.tvSymbol}</span>
+                                {aiScoreByTicker.has(row.ticker.trim().toUpperCase()) ? (
+                                  <span className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200">
+                                    AI {aiScoreByTicker.get(row.ticker.trim().toUpperCase())?.objectiveScore}%
+                                  </span>
+                                ) : null}
+                                {(stockTagsByTicker.get(row.ticker.trim().toUpperCase())?.length ?? 0) > 0 ? (
+                                  <div className="flex items-center gap-1">
+                                    {(stockTagsByTicker.get(row.ticker.trim().toUpperCase()) ?? []).slice(0, 2).map((tagId) => (
+                                      <span
+                                        key={`${row.ticker}-${tagId}`}
+                                        className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${stockTagBadgeClass(tagId)}`}
+                                      >
+                                        {compactStockTagLabel(staticTagLabelById.get(tagId) ?? tagId)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
                               <div className="mt-0.5 truncate text-[11px] text-gray-500">{row.companyName}</div>
                             </div>
                             <span className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-gray-500">
@@ -906,19 +972,26 @@ export default function Scanner52wWorkspace() {
                       </div>
                     </li>
                   );
-                })}
-              </ul>
-            ) : listLoading ? (
+                    })}
+                  </ul>
+                )
+              ) : listLoading ? (
               <div className="px-3 py-8 text-center text-sm text-gray-500">
-                {scannerTab === 'monthly' ? 'Loading monthly screen…' : 'Loading short-term pullback screen…'}
+                {scannerTab === 'monthly'
+                  ? 'Loading monthly screen…'
+                  : scannerTab === '3m'
+                    ? 'Loading 3M screen…'
+                    : scannerTab === '1y-top'
+                      ? 'Loading 1Y Top screen…'
+                    : 'Loading short-term pullback screen…'}
               </div>
-            ) : tvRows.length === 0 ? (
+            ) : filteredTvRows.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-gray-500">
                 No symbols matched this TradingView screen right now.
               </div>
             ) : (
               <ul className="space-y-1">
-                {tvRows.map((row) => {
+                {filteredTvRows.map((row) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
                   const ch = row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
@@ -935,7 +1008,26 @@ export default function Scanner52wWorkspace() {
                         <button type="button" onClick={() => onSelect(row.tvSymbol)} className="min-w-0 flex-1 text-left">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <div className="font-bold tracking-tight">{row.tvSymbol}</div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold tracking-tight">{row.tvSymbol}</span>
+                                {aiScoreByTicker.has(row.ticker.trim().toUpperCase()) ? (
+                                  <span className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200">
+                                    AI {aiScoreByTicker.get(row.ticker.trim().toUpperCase())?.objectiveScore}%
+                                  </span>
+                                ) : null}
+                                {(stockTagsByTicker.get(row.ticker.trim().toUpperCase())?.length ?? 0) > 0 ? (
+                                  <div className="flex items-center gap-1">
+                                    {(stockTagsByTicker.get(row.ticker.trim().toUpperCase()) ?? []).slice(0, 2).map((tagId) => (
+                                      <span
+                                        key={`${row.ticker}-tv-${tagId}`}
+                                        className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${stockTagBadgeClass(tagId)}`}
+                                      >
+                                        {compactStockTagLabel(staticTagLabelById.get(tagId) ?? tagId)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
                               <div className="mt-0.5 truncate text-[11px] text-gray-500">{row.companyName}</div>
                             </div>
                             <span
@@ -1021,6 +1113,18 @@ export default function Scanner52wWorkspace() {
                   </button>
                 </div>
               </div>
+              {selectedStock ? (
+                <TechnicalChartScoreControl
+                  ticker={selectedStock.ticker}
+                  staticTags={staticTags}
+                  selectedTagIds={stockTagsByTicker.get(technicalScoreTicker) ?? []}
+                  isLoading={isLoadingStaticTags || isLoadingStockTags || isFetchingStockTags}
+                  isSaving={isSavingTags}
+                  onSaveTags={async (tagIds) => {
+                    await saveTags({ ticker: selectedStock.ticker, tagIds });
+                  }}
+                />
+              ) : null}
               <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                 {chartMode === 'kline' && chartNseSymbol ? (
                   <NseEquityCandleChartWidget
@@ -1046,6 +1150,10 @@ export default function Scanner52wWorkspace() {
               {isTvTab && listLoading
                 ? scannerTab === 'monthly'
                   ? 'Loading monthly screen…'
+                  : scannerTab === '3m'
+                    ? 'Loading 3M screen…'
+                    : scannerTab === '1y-top'
+                      ? 'Loading 1Y Top screen…'
                   : 'Loading short-term pullback screen…'
                 : 'Select a stock from the scanner to load a chart.'}
             </div>

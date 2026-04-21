@@ -66,6 +66,10 @@ export const stockOverviewRequestSchema = z.object({
   companyName: z.string().trim().max(256).optional().default(''),
 });
 
+export const stockOverviewScoresRequestSchema = z.object({
+  tickers: z.array(z.string().trim().min(1).max(40)).min(1).max(1000),
+});
+
 const financialMetricSchema = z.object({
   rating: financialRatingSchema,
   numericEvidence: z.string().trim().min(1).max(220),
@@ -136,6 +140,18 @@ export const stockOverviewApiResponseSchema = z.object({
 
 export type StockOverviewApiResponse = z.infer<typeof stockOverviewApiResponseSchema>;
 
+export const stockOverviewScoresResponseSchema = z.object({
+  scores: z.array(
+    z.object({
+      ticker: z.string().trim().min(1),
+      objectiveScore: z.number().int().min(0).max(100),
+      isStale: z.boolean(),
+    }),
+  ),
+});
+
+export type StockOverviewScoresResponse = z.infer<typeof stockOverviewScoresResponseSchema>;
+
 export const QUALITATIVE_QUESTIONS: readonly string[] = [
   'Operating in sunrise/new-age sector',
   'Reinvesting cash in high-growth sector',
@@ -188,7 +204,12 @@ export function computeStockOverviewScore(output: StockOverviewModelOutput) {
 
   const maxPoints = 140;
   const totalPoints = financialPoints + qualitativePoints;
-  const objectiveScore = Math.max(0, Math.min(100, Math.round((totalPoints / maxPoints) * 100)));
+  const financialPercentage = Math.round((financialPoints / 50) * 100);
+  const qualitativePercentage = Math.round((qualitativePoints / 90) * 100);
+  const objectiveScore = Math.max(
+    0,
+    Math.min(100, Math.round(financialPercentage * 0.3 + qualitativePercentage * 0.7)),
+  );
 
   return {
     financialPoints,
@@ -197,8 +218,8 @@ export function computeStockOverviewScore(output: StockOverviewModelOutput) {
     maxPoints: 140 as const,
     objectiveScore,
     sectionPercentages: {
-      financial: Math.round((financialPoints / 50) * 100),
-      qualitative: Math.round((qualitativePoints / 90) * 100),
+      financial: financialPercentage,
+      qualitative: qualitativePercentage,
     },
   };
 }
