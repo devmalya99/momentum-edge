@@ -451,7 +451,7 @@ export default function Scanner52wWorkspace() {
       ? athGlobalQuery.isFetching
       : isTvTab
         ? (tvQuery?.isFetching ?? false)
-        : isFetching;
+        : false;
   const listLoading =
     scannerTab === 'ath-scanner'
       ? athGlobalQuery.isPending
