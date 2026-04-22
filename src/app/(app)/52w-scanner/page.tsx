@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import Scanner52wWorkspace from '@/features/52wScanner/Scanner52wWorkspace';
+import Scanner52wWorkspace from '@/features/scanner/Scanner52wWorkspace';
 
 function Scanner52wFallback() {
   return (

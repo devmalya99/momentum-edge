@@ -10,17 +10,19 @@
     "minmove2",
     "currency",
     "change",
-    "Perf.W",
-    "Perf.1M",
-    "Perf.3M",
-    "Perf.6M",
-    "Perf.YTD",
-    "Perf.Y",
-    "Perf.5Y",
-    "Perf.10Y",
-    "Perf.All",
-    "Volatility.W",
-    "Volatility.M"
+    "volume",
+    "relative_volume_10d_calc",
+    "market_cap_basic",
+    "fundamental_currency_code",
+    "price_earnings_ttm",
+    "earnings_per_share_diluted_ttm",
+    "earnings_per_share_diluted_yoy_growth_ttm",
+    "dividends_yield_current",
+    "sector.tr",
+    "market",
+    "sector",
+    "AnalystRating",
+    "AnalystRating.tr"
   ],
   "filter": [
     {
@@ -29,9 +31,9 @@
       "right": 10000000000
     },
     {
-      "left": "Perf.Y",
-      "operation": "greater",
-      "right": 110
+      "left": "price_52_week_high",
+      "operation": "eless",
+      "right": "high"
     },
     {
       "left": "EMA20",
@@ -44,7 +46,7 @@
       "right": "EMA100"
     },
     {
-      "left": "EMA20",
+      "left": "EMA21",
       "operation": "egreater",
       "right": "EMA50"
     },
@@ -68,7 +70,7 @@
     100
   ],
   "sort": {
-    "sortBy": "Perf.Y",
+    "sortBy": "Perf.1M",
     "sortOrder": "desc"
   },
   "symbols": {},

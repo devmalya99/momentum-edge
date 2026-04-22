@@ -1,42 +1,70 @@
 {
   "columns": [
     "ticker-view",
-    "close",
-    "type",
-    "typespecs",
+    "TechRating_1W",
+    "TechRating_1W.tr",
+    "MARating_1D",
+    "MARating_1D.tr",
+    "OsRating_1D",
+    "OsRating_1D.tr",
+    "RSI",
+    "Mom",
     "pricescale",
     "minmov",
     "fractional",
     "minmove2",
-    "currency",
-    "change",
-    "Perf.W",
-    "Perf.1M",
-    "Perf.3M",
-    "Perf.6M",
-    "Perf.YTD",
-    "Perf.Y",
-    "Perf.5Y",
-    "Perf.10Y",
-    "Perf.All",
-    "Volatility.W",
-    "Volatility.M"
+    "AO",
+    "CCI20",
+    "Stoch.K",
+    "Stoch.D",
+    "Candle.3BlackCrows",
+    "Candle.3WhiteSoldiers",
+    "Candle.AbandonedBaby.Bearish",
+    "Candle.AbandonedBaby.Bullish",
+    "Candle.Doji",
+    "Candle.Doji.Dragonfly",
+    "Candle.Doji.Gravestone",
+    "Candle.Engulfing.Bearish",
+    "Candle.Engulfing.Bullish",
+    "Candle.EveningStar",
+    "Candle.Hammer",
+    "Candle.HangingMan",
+    "Candle.Harami.Bearish",
+    "Candle.Harami.Bullish",
+    "Candle.InvertedHammer",
+    "Candle.Kicking.Bearish",
+    "Candle.Kicking.Bullish",
+    "Candle.LongShadow.Lower",
+    "Candle.LongShadow.Upper",
+    "Candle.Marubozu.Black",
+    "Candle.Marubozu.White",
+    "Candle.MorningStar",
+    "Candle.ShootingStar",
+    "Candle.SpinningTop.Black",
+    "Candle.SpinningTop.White",
+    "Candle.TriStar.Bearish",
+    "Candle.TriStar.Bullish"
   ],
   "filter": [
     {
       "left": "market_cap_basic",
       "operation": "egreater",
-      "right": 10000000000
+      "right": 20000000000
     },
     {
-      "left": "Perf.Y",
+      "left": "Perf.All",
       "operation": "greater",
-      "right": 110
+      "right": 20
     },
     {
-      "left": "EMA20",
-      "operation": "less",
-      "right": "close"
+      "left": "High.1M",
+      "operation": "eless",
+      "right": "high"
+    },
+    {
+      "left": "Value.Traded|1W",
+      "operation": "greater",
+      "right": 100000000
     },
     {
       "left": "EMA50",
@@ -45,13 +73,18 @@
     },
     {
       "left": "EMA20",
-      "operation": "egreater",
+      "operation": "greater",
       "right": "EMA50"
     },
     {
-      "left": "AvgValue.Traded_10d",
+      "left": "RSI7|1W",
       "operation": "greater",
-      "right": 50000000
+      "right": 60
+    },
+    {
+      "left": "RSI5|1M",
+      "operation": "greater",
+      "right": 60
     },
     {
       "left": "is_primary",
@@ -68,8 +101,8 @@
     100
   ],
   "sort": {
-    "sortBy": "Perf.Y",
-    "sortOrder": "desc"
+    "sortBy": "RSI",
+    "sortOrder": "asc"
   },
   "symbols": {},
   "markets": [

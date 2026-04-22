@@ -24,64 +24,14 @@
   ],
   "filter": [
     {
-      "left": "EMA50",
-      "operation": "less",
-      "right": "close"
-    },
-    {
-      "left": "EMA20",
-      "operation": "in_range%",
-      "right": ["close", 0.95, 1]
-    },
-    {
-      "left": "EMA100",
-      "operation": "less",
-      "right": "close"
-    },
-    {
-      "left": "market_cap_basic",
-      "operation": "egreater",
-      "right": 6000000000
-    },
-    {
-      "left": "Perf.1M",
-      "operation": "in_range",
-      "right": [-5, 15]
-    },
-    {
-      "left": "Value.Traded",
+      "left": "AvgValue.Traded_10d",
       "operation": "greater",
       "right": 50000000
     },
     {
-      "left": "Perf.3M",
-      "operation": "greater",
-      "right": 0
-    },
-    {
-      "left": "RSI5|1M",
-      "operation": "greater",
-      "right": 60
-    },
-    {
-      "left": "Perf.6M",
-      "operation": "greater",
-      "right": 30
-    },
-    {
-      "left": "EMA20",
-      "operation": "greater",
-      "right": "EMA40"
-    },
-    {
-      "left": "EMA40",
-      "operation": "greater",
-      "right": "EMA89"
-    },
-    {
-      "left": "ATRP",
-      "operation": "in_range",
-      "right": [-5, 5]
+      "left": "High.All",
+      "operation": "eless",
+      "right": "high"
     },
     {
       "left": "is_primary",
@@ -93,13 +43,18 @@
   "options": {
     "lang": "en"
   },
-  "range": [0, 100],
+  "range": [
+    0,
+    100
+  ],
   "sort": {
-    "sortBy": "Perf.6M",
+    "sortBy": "Perf.3M",
     "sortOrder": "desc"
   },
   "symbols": {},
-  "markets": ["india"],
+  "markets": [
+    "india"
+  ],
   "filter2": {
     "operator": "and",
     "operands": [
@@ -122,7 +77,9 @@
                     "expression": {
                       "left": "typespecs",
                       "operation": "has",
-                      "right": ["common"]
+                      "right": [
+                        "common"
+                      ]
                     }
                   }
                 ]
@@ -143,7 +100,9 @@
                     "expression": {
                       "left": "typespecs",
                       "operation": "has",
-                      "right": ["preferred"]
+                      "right": [
+                        "preferred"
+                      ]
                     }
                   }
                 ]
@@ -178,7 +137,11 @@
                     "expression": {
                       "left": "typespecs",
                       "operation": "has_none_of",
-                      "right": ["etf", "mutual", "closedend"]
+                      "right": [
+                        "etf",
+                        "mutual",
+                        "closedend"
+                      ]
                     }
                   }
                 ]
@@ -191,7 +154,9 @@
         "expression": {
           "left": "typespecs",
           "operation": "has_none_of",
-          "right": ["pre-ipo"]
+          "right": [
+            "pre-ipo"
+          ]
         }
       }
     ]

@@ -12,7 +12,7 @@ import TechnicalChartScoreControl, {
 } from '@/components/TechnicalChartScoreControl';
 import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
-import StockAiOverviewSheet from '@/features/52wScanner/StockAiOverviewSheet';
+import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
 import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
 import { useTradeStore } from '@/store/useTradeStore';
