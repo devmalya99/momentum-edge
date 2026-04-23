@@ -242,7 +242,7 @@ export default function Scanner52wWorkspace() {
           queryClient.getQueryData(['nse-equity-quote', ticker]) == null),
       staleTime: 10 * 60 * 1000,
       gcTime: 24 * 60 * 60 * 1000,
-      refetchInterval: isLiveMarketSession && isScreenFocused ? 10 * 60 * 1000 : false,
+      refetchInterval: () => (isLiveMarketSession && isScreenFocused ? 10 * 60 * 1000 : false),
       refetchIntervalInBackground: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
