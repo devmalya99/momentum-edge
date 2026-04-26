@@ -13,6 +13,8 @@ import TechnicalChartScoreControl, {
 import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
 import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
 import { useRelativeTurnoverMap } from '@/features/relative-turnover/useRelativeTurnover';
+import TurnoverAccelerationBadge from '@/features/turnover-acceleration/TurnoverAccelerationBadge';
+import { useTurnoverAccelerationMap } from '@/features/turnover-acceleration/useTurnoverAcceleration';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
@@ -99,6 +101,7 @@ export default function WatchlistWorkspace() {
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
   const [minRelativeTurnoverPct, setMinRelativeTurnoverPct] = useState(0);
+  const [minTurnoverSurgePct, setMinTurnoverSurgePct] = useState(0);
 
   const symbolsForQuotes = useMemo(() => {
     const s = new Set<string>();
@@ -117,6 +120,7 @@ export default function WatchlistWorkspace() {
     [itemsForList],
   );
   const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(technicalScoreTickers);
+  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(technicalScoreTickers);
 
   const quoteQueries = useQueries({
     queries: symbolsForQuotes.map((symbol) => ({
@@ -211,14 +215,31 @@ export default function WatchlistWorkspace() {
     },
     [minRelativeTurnoverPct, relativeTurnoverBySymbol],
   );
+  const matchesTurnoverSurgeFilter = useCallback(
+    (symbol: string, kind: 'equity' | 'index') => {
+      if (kind !== 'equity') return true;
+      if (minTurnoverSurgePct <= 0) return true;
+      const metric = turnoverAccelerationBySymbol.get(symbol.trim().toUpperCase());
+      const surge = metric?.turnoverAccelerationPct;
+      if (surge == null || !Number.isFinite(surge)) return false;
+      return surge >= minTurnoverSurgePct;
+    },
+    [minTurnoverSurgePct, turnoverAccelerationBySymbol],
+  );
   const filteredSortedWatchlist = useMemo(
     () =>
       sortedWatchlist.filter(
         (item) =>
           matchesActiveTagFilter(item.symbol, item.kind) &&
-          matchesRelativeTurnoverFilter(item.symbol, item.kind),
+          matchesRelativeTurnoverFilter(item.symbol, item.kind) &&
+          matchesTurnoverSurgeFilter(item.symbol, item.kind),
       ),
-    [sortedWatchlist, matchesActiveTagFilter, matchesRelativeTurnoverFilter],
+    [
+      sortedWatchlist,
+      matchesActiveTagFilter,
+      matchesRelativeTurnoverFilter,
+      matchesTurnoverSurgeFilter,
+    ],
   );
   const selectedItemId = useMemo(() => {
     if (filteredSortedWatchlist.length === 0) return '';
@@ -536,8 +557,16 @@ export default function WatchlistWorkspace() {
               })}
             </div>
             <RelativeTurnoverFilterControl
+              label="Min 30D Turnover/MCap"
               value={minRelativeTurnoverPct}
               onChange={setMinRelativeTurnoverPct}
+            />
+            <RelativeTurnoverFilterControl
+              label="Min Vol Surge"
+              value={minTurnoverSurgePct}
+              onChange={setMinTurnoverSurgePct}
+              max={500}
+              step={1}
             />
             <div className="relative z-20">
               <Search
@@ -733,12 +762,17 @@ export default function WatchlistWorkspace() {
                           </div>
                           <div className="mt-0.5 truncate text-[11px] text-gray-500">{item.companyName}</div>
                           {item.kind === 'equity' ? (
-                            <div className="mt-1 text-[10px] font-semibold text-cyan-300">
-                              30D Turnover/MCap:{' '}
-                              {relativeTurnoverBySymbol
-                                .get(symU)
-                                ?.relativeTurnoverPct.toFixed(2)
-                                .concat('%') ?? '—'}
+                            <div className="mt-1 flex items-center gap-2">
+                              <span className="text-[10px] font-semibold text-cyan-300">
+                                30D Turnover/MCap:{' '}
+                                {relativeTurnoverBySymbol
+                                  .get(symU)
+                                  ?.relativeTurnoverPct.toFixed(2)
+                                  .concat('%') ?? '—'}
+                              </span>
+                              <TurnoverAccelerationBadge
+                                value={turnoverAccelerationBySymbol.get(symU)?.turnoverAccelerationPct}
+                              />
                             </div>
                           ) : null}
                           <div className="mt-1 font-mono text-[10px] text-gray-600">

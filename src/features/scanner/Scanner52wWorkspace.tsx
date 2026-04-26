@@ -26,6 +26,8 @@ import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingV
 import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
 import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
 import { useRelativeTurnoverMap } from '@/features/relative-turnover/useRelativeTurnover';
+import TurnoverAccelerationBadge from '@/features/turnover-acceleration/TurnoverAccelerationBadge';
+import { useTurnoverAccelerationMap } from '@/features/turnover-acceleration/useTurnoverAcceleration';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
@@ -76,6 +78,7 @@ export default function Scanner52wWorkspace() {
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [scanAnalysisOpen, setScanAnalysisOpen] = useState(false);
   const [minRelativeTurnoverPct, setMinRelativeTurnoverPct] = useState(0);
+  const [minTurnoverSurgePct, setMinTurnoverSurgePct] = useState(0);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isScreenFocused, setIsScreenFocused] = useState(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible' && document.hasFocus(),
@@ -141,6 +144,7 @@ export default function Scanner52wWorkspace() {
   }, [isTvTab, tvRows]);
   const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(scannerListTickers);
   const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(scannerListTickers);
+  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(scannerListTickers);
 
   const watchlist = useTradeStore((s) => s.watchlist);
   const authUser = useAuthStore((s) => s.user);
@@ -207,12 +211,26 @@ export default function Scanner52wWorkspace() {
     () =>
       tvRows.filter((row) => {
         if (!matchesActiveTagFilter(row.ticker)) return false;
-        if (minRelativeTurnoverPct <= 0) return true;
-        const metric = relativeTurnoverBySymbol.get(row.ticker.trim().toUpperCase());
-        if (!metric) return false;
-        return metric.relativeTurnoverPct >= minRelativeTurnoverPct;
+        const ticker = row.ticker.trim().toUpperCase();
+        if (minRelativeTurnoverPct > 0) {
+          const metric = relativeTurnoverBySymbol.get(ticker);
+          if (!metric || metric.relativeTurnoverPct < minRelativeTurnoverPct) return false;
+        }
+        if (minTurnoverSurgePct > 0) {
+          const accel = turnoverAccelerationBySymbol.get(ticker);
+          const surge = accel?.turnoverAccelerationPct;
+          if (surge == null || !Number.isFinite(surge) || surge < minTurnoverSurgePct) return false;
+        }
+        return true;
       }),
-    [tvRows, matchesActiveTagFilter, minRelativeTurnoverPct, relativeTurnoverBySymbol],
+    [
+      tvRows,
+      matchesActiveTagFilter,
+      minRelativeTurnoverPct,
+      minTurnoverSurgePct,
+      relativeTurnoverBySymbol,
+      turnoverAccelerationBySymbol,
+    ],
   );
   const scanAnalysisStocks = useMemo(
     () =>
@@ -585,8 +603,16 @@ export default function Scanner52wWorkspace() {
               );
             })}
             <RelativeTurnoverFilterControl
+              label="Min 30D Turnover/MCap"
               value={minRelativeTurnoverPct}
               onChange={setMinRelativeTurnoverPct}
+            />
+            <RelativeTurnoverFilterControl
+              label="Min Vol Surge"
+              value={minTurnoverSurgePct}
+              onChange={setMinTurnoverSurgePct}
+              max={500}
+              step={1}
             />
           </div>
 
@@ -653,12 +679,17 @@ export default function Scanner52wWorkspace() {
 
                           {/* Company name */}
                           <div className="mt-0.5 truncate text-[11px] text-gray-500">{row.companyName}</div>
-                          <div className="mt-1 text-[10px] font-semibold text-cyan-300">
-                            30D Turnover/MCap:{' '}
-                            {relativeTurnoverBySymbol
-                              .get(upperTicker)
-                              ?.relativeTurnoverPct.toFixed(2)
-                              .concat('%') ?? '—'}
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="text-[10px] font-semibold text-cyan-300">
+                              30D Turnover/MCap:{' '}
+                              {relativeTurnoverBySymbol
+                                .get(upperTicker)
+                                ?.relativeTurnoverPct.toFixed(2)
+                                .concat('%') ?? '—'}
+                            </span>
+                            <TurnoverAccelerationBadge
+                              value={turnoverAccelerationBySymbol.get(upperTicker)?.turnoverAccelerationPct}
+                            />
                           </div>
 
                           {/* Row bottom: price + exchange + tags */}
