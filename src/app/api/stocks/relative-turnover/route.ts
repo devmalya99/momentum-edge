@@ -8,7 +8,7 @@ import {
   type RelativeTurnoverApiResponse,
 } from '@/lib/relative-turnover';
 
-export const revalidate = RELATIVE_TURNOVER_REVALIDATE_SECONDS;
+export const revalidate = 86_400;
 
 const getRelativeTurnoverCached = unstable_cache(
   async (symbol: string): Promise<RelativeTurnoverApiResponse> => {

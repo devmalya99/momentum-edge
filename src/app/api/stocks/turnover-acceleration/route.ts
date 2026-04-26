@@ -8,7 +8,7 @@ import {
   type TurnoverAccelerationApiResponse,
 } from '@/lib/turnover-acceleration';
 
-export const revalidate = TURNOVER_ACCELERATION_REVALIDATE_SECONDS;
+export const revalidate = 72_000;
 
 const getTurnoverAccelerationCached = unstable_cache(
   async (symbol: string): Promise<TurnoverAccelerationApiResponse> => {
