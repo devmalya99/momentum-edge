@@ -5,6 +5,7 @@ export type UserRow = {
   email: string;
   password_hash: string;
   name: string;
+  role: string;
   trading_experience: string | null;
   image_url: string | null;
   created_at: string;
@@ -22,11 +23,16 @@ export async function ensureUsersTable(): Promise<void> {
       email text NOT NULL UNIQUE,
       password_hash text NOT NULL,
       name text NOT NULL,
+      role text NOT NULL DEFAULT 'user',
       trading_experience text,
       image_url text,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )
+  `;
+  await sql`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user'
   `;
   usersSchemaReady = true;
 }
@@ -40,6 +46,7 @@ export async function getUserByEmail(email: string): Promise<UserRow | null> {
       email,
       password_hash,
       name,
+      role,
       trading_experience,
       image_url,
       created_at::text AS created_at,
@@ -61,6 +68,7 @@ export async function getUserById(id: string): Promise<UserRow | null> {
       email,
       password_hash,
       name,
+      role,
       trading_experience,
       image_url,
       created_at::text AS created_at,
@@ -78,12 +86,13 @@ export async function createUser(input: {
   email: string;
   passwordHash: string;
   name: string;
+  role?: string;
 }): Promise<void> {
   await ensureUsersTable();
   const sql = getNeonSql();
   await sql`
-    INSERT INTO users (id, email, password_hash, name)
-    VALUES (${input.id}, ${input.email}, ${input.passwordHash}, ${input.name})
+    INSERT INTO users (id, email, password_hash, name, role)
+    VALUES (${input.id}, ${input.email}, ${input.passwordHash}, ${input.name}, ${input.role ?? 'user'})
   `;
 }
 

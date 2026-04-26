@@ -8,6 +8,7 @@ type ProfileUser = {
   id: string;
   name: string;
   email: string;
+  role: string;
   tradingExperience: string;
   imageUrl: string;
 };

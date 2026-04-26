@@ -9,17 +9,15 @@ export async function GET(request: Request) {
     const data = await fetchTradingViewIndiaScreenerStockScan({
       silent: true,
       screen:
-        screen === '1y-top'
-            ? '1y-top'
-            : screen === 'at-all-time-high'
-              ? 'at-all-time-high'
-            : screen === 'new-trend'
-              ? 'new-trend'
+        screen === 'at-all-time-high'
+          ? 'at-all-time-high'
+          : screen === 'new-trend'
+            ? 'new-trend'
             : screen === 'new-monthly-high'
               ? 'new-monthly-high'
-            : screen === '52h'
-              ? '52h'
-              : 'monthly',
+              : screen === '52h'
+                ? '52h'
+                : 'monthly',
     });
     return NextResponse.json(data);
   } catch (e) {

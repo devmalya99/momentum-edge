@@ -3,7 +3,6 @@ import tradingViewIndiaScreener52hPayload from '@/lib/tradingview-india-screener
 import tradingViewIndiaScreenerNewMonthlyHighPayload from '@/lib/tradingview-india-screener-new-monthly-high-payload.json';
 import tradingViewIndiaScreenerNewTrendPayload from '@/lib/tradingview-india-screener-new-trend-payload.json';
 import tradingViewIndiaScreenerAtAllTimeHighPayload from '@/lib/tradingview-india-screener-at-all-time-high-payload.json';
-import tradingViewIndiaScreener1yTopPayload from '@/lib/tradingview-india-screener-1y-top-payload.json';
 
 const TRADINGVIEW_INDIA_SCAN_URL =
   'https://scanner.tradingview.com/india/scan?label-product=screener-stock';
@@ -13,8 +12,7 @@ export type TradingViewIndiaScreenerScreen =
   | 'new-monthly-high'
   | 'new-trend'
   | 'at-all-time-high'
-  | 'monthly'
-  | '1y-top';
+  | 'monthly';
 
 export type TradingViewIndiaScreenerRow = {
   s: string;
@@ -46,7 +44,6 @@ function toFiniteNumber(v: unknown): number | null {
 }
 
 function getScreenPayload(screen: TradingViewIndiaScreenerScreen) {
-  if (screen === '1y-top') return tradingViewIndiaScreener1yTopPayload;
   if (screen === 'at-all-time-high') return tradingViewIndiaScreenerAtAllTimeHighPayload;
   if (screen === 'new-trend') return tradingViewIndiaScreenerNewTrendPayload;
   if (screen === 'new-monthly-high') return tradingViewIndiaScreenerNewMonthlyHighPayload;
@@ -107,21 +104,6 @@ export async function fetchTradingViewIndiaScreenerStockScan(options?: {
   }
 
   const json = JSON.parse(text) as TradingViewIndiaScreenerResponse;
-  if (!options?.silent) {
-    const serialized = JSON.stringify(json);
-    const previewLimit = 12_000;
-    console.log('[TradingView India screener] response summary', {
-      totalCount: json.totalCount,
-      rowCount: json.data?.length ?? 0,
-      firstSymbols: json.data?.slice(0, 8).map((r) => r.s),
-    });
-    console.log(
-      '[TradingView India screener] response JSON',
-      serialized.length > previewLimit
-        ? `${serialized.slice(0, previewLimit)}… (truncated, ${serialized.length} chars total)`
-        : json,
-    );
-  }
 
   return json;
 }

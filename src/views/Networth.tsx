@@ -208,23 +208,13 @@ export default function Networth() {
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = xlsx.utils.sheet_to_json<any[]>(ws, { header: 1 });
-        console.log('[Networth XLSX] workbook structure', {
-          fileName: file.name,
-          sheetNames: wb.SheetNames,
-          activeSheet: wsname,
-          totalRows: data.length,
-          previewRows: data.slice(0, 12),
-        });
         
         const headerIdx = data.findIndex(row => row.some(cell => typeof cell === 'string' && (cell.includes('Symbol') || cell.includes('ISIN'))));
         
         if (headerIdx === -1) throw new Error('Could not parse XLSX. Missing headers (Symbol, etc). Make sure this is a Zerodha Holdings Excel file.');
         
         const headers = data[headerIdx] as string[];
-        console.log('[Networth XLSX] detected header row', {
-          headerRowIndex: headerIdx,
-          headers,
-        });
+      
         
         const symIdx = headers.findIndex(h => h && h.toString().trim() === 'Symbol');
         const qtyIdx = headers.findIndex(h => h && h.toString().includes('Quantity Available'));
@@ -263,10 +253,6 @@ export default function Networth() {
             }
         }
 
-        console.log('[Networth XLSX] parsed holdings (payload that replaces server holdings)', {
-          parsedHoldings,
-          parsedHoldingsCount: parsedHoldings.length,
-        });
 
         const res = await fetch('/api/holdings', {
           method: 'POST',

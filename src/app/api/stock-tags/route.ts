@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
 import { listStaticStockTags } from '@/lib/db/static-items';
-import { listUserStockTags, replaceUserStockTags } from '@/lib/db/user-stock-tags';
+import { getUserById } from '@/lib/db/users';
+import { listStockTags, replaceStockTag } from '@/lib/db/user-stock-tags';
 
 const stockTagsRequestSchema = z.object({
   tickers: z.array(z.string().trim().min(1).max(32)).max(300),
@@ -10,7 +11,7 @@ const stockTagsRequestSchema = z.object({
 
 const upsertStockTagsSchema = z.object({
   ticker: z.string().trim().min(1).max(32),
-  tagIds: z.array(z.string().trim().min(1).max(64)).max(30),
+  tagId: z.string().trim().min(1).max(64).nullable(),
 });
 
 function isTrustedSameOriginRequest(request: Request): boolean {
@@ -43,11 +44,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Database is not configured' }, { status: 503 });
     }
     const body = stockTagsRequestSchema.parse(await request.json());
-    const rows = await listUserStockTags(session.sub, body.tickers);
+    const rows = await listStockTags(body.tickers);
     const byTicker = new Map<string, string[]>();
     for (const row of rows) {
       const key = row.ticker.trim().toUpperCase();
-      byTicker.set(key, [...(byTicker.get(key) ?? []), row.tagId]);
+      byTicker.set(key, [row.tagId]);
     }
     return NextResponse.json({
       tags: [...byTicker.entries()].map(([ticker, tagIds]) => ({ ticker, tagIds })),
@@ -67,11 +68,19 @@ export async function PATCH(request: Request) {
     if (!process.env.DATABASE_URL?.trim()) {
       return NextResponse.json({ error: 'Database is not configured' }, { status: 503 });
     }
+    const user = await getUserById(session.sub);
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can edit stock tags' }, { status: 403 });
+    }
     const body = upsertStockTagsSchema.parse(await request.json());
     const staticItems = await listStaticStockTags();
     const allowed = new Set(staticItems.map((item) => item.id));
-    const filtered = body.tagIds.filter((id) => allowed.has(id));
-    await replaceUserStockTags(session.sub, body.ticker, filtered);
+    const normalizedTagId = body.tagId?.trim() ?? null;
+    if (normalizedTagId && !allowed.has(normalizedTagId)) {
+      return NextResponse.json({ error: 'Invalid stock tag id' }, { status: 400 });
+    }
+    await replaceStockTag(session.sub, body.ticker, normalizedTagId);
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'Failed to save stock tags' }, { status: 500 });

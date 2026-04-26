@@ -323,7 +323,6 @@ export default function PortfolioKanbanBoard({
 
   const applyDrop = useCallback(
     async (tradeId: string, targetColumnName: string) => {
-      console.log('[Kanban] 1. applyDrop initiated for ID:', tradeId, 'target:', targetColumnName);
       const trade = trades.find((x) => x.id === tradeId);
       if (!trade) {
         console.warn('[Kanban] Trade not found in current trades list:', tradeId);
@@ -332,16 +331,12 @@ export default function PortfolioKanbanBoard({
       
       const current = trade.type || 'Uncategorized';
       if (current === targetColumnName) {
-        console.log('[Kanban] Trade already in target column. Ignoring.');
         return;
       }
       
-      console.log(`[Kanban] 2. Set moving state. Changing type from ${current} to ${targetColumnName}`);
       setMovingId(tradeId);
       try {
-        console.log('[Kanban] 3. Calling store to update state/db silently...');
         await onUpdateTradeType(tradeId, targetColumnName);
-        console.log('[Kanban] 4. Store update resolved. Local state updated.');
       } catch(err) {
         console.error('[Kanban] Error during update:', err);
       } finally {

@@ -109,7 +109,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   isLoading: true,
 
   fetchData: async () => {
-    console.log('Fetching all trade data...');
     const db = await initDB();
     let trades = await db.getAll('trades');
     let rules = await db.getAll('rules');
@@ -379,7 +378,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   },
 
   updateTrade: async (id, updates) => {
-    console.log('[Store] 1. updateTrade invoked for ID:', id, 'with updates:', updates);
     const currentState = get();
     const trade = currentState.trades.find((t) => t.id === id);
     
@@ -392,7 +390,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const updatedTrade = { ...trade, ...updates };
     const isImported = isImportedHoldingTrade(updatedTrade);
     
-    console.log('[Store] 2. Optimistically updating UI state. isImported?', isImported);
     // 1. Optimistic UI Update - happens immediately
     set((state) => ({
       trades: state.trades.map((t) => (t.id === id ? updatedTrade : t)),
@@ -400,7 +397,6 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
     // 2. Background Saving (Silent)
     if (!isImported) {
-      console.log('[Store] 3. Saving regular trade to local IndexedDB.');
       const db = await initDB();
       await db.put('trades', updatedTrade);
     } else {

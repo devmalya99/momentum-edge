@@ -27,10 +27,18 @@ export async function ensureUserStockTagsTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS user_stock_tags_ticker_idx
     ON user_stock_tags (user_id, ticker)
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS stock_tags (
+      ticker text PRIMARY KEY,
+      tag_id text NOT NULL REFERENCES static_items(id) ON DELETE RESTRICT,
+      updated_by text REFERENCES users(id) ON DELETE SET NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
   userStockTagsSchemaReady = true;
 }
 
-export async function listUserStockTags(userId: string, tickers: string[]): Promise<UserStockTagRow[]> {
+export async function listStockTags(tickers: string[]): Promise<UserStockTagRow[]> {
   await ensureUserStockTagsTable();
   const normalizedTickers = Array.from(
     new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean)),
@@ -39,9 +47,8 @@ export async function listUserStockTags(userId: string, tickers: string[]): Prom
   const sql = getNeonSql();
   const rows = await sql`
     SELECT ticker, tag_id
-    FROM user_stock_tags
-    WHERE user_id = ${userId}
-      AND ticker = ANY(${normalizedTickers}::text[])
+    FROM stock_tags
+    WHERE ticker = ANY(${normalizedTickers}::text[])
   `;
   return (rows as Array<{ ticker: string; tag_id: string }>).map((row) => ({
     ticker: row.ticker,
@@ -49,20 +56,28 @@ export async function listUserStockTags(userId: string, tickers: string[]): Prom
   }));
 }
 
-export async function replaceUserStockTags(userId: string, ticker: string, tagIds: string[]): Promise<void> {
+export async function replaceStockTag(
+  updatedByUserId: string,
+  ticker: string,
+  tagId: string | null,
+): Promise<void> {
   await ensureUserStockTagsTable();
   const sql = getNeonSql();
   const normalizedTicker = ticker.trim().toUpperCase();
-  const normalizedTagIds = Array.from(new Set(tagIds.map((id) => id.trim()).filter(Boolean)));
-  await sql`
-    DELETE FROM user_stock_tags
-    WHERE user_id = ${userId} AND ticker = ${normalizedTicker}
-  `;
-  for (const tagId of normalizedTagIds) {
+  const normalizedTagId = tagId?.trim() ?? '';
+  if (!normalizedTagId) {
     await sql`
-      INSERT INTO user_stock_tags (user_id, ticker, tag_id)
-      VALUES (${userId}, ${normalizedTicker}, ${tagId})
-      ON CONFLICT (user_id, ticker, tag_id) DO NOTHING
+      DELETE FROM stock_tags
+      WHERE ticker = ${normalizedTicker}
     `;
+    return;
   }
+  await sql`
+    INSERT INTO stock_tags (ticker, tag_id, updated_by, updated_at)
+    VALUES (${normalizedTicker}, ${normalizedTagId}, ${updatedByUserId}, now())
+    ON CONFLICT (ticker) DO UPDATE SET
+      tag_id = EXCLUDED.tag_id,
+      updated_by = EXCLUDED.updated_by,
+      updated_at = now()
+  `;
 }

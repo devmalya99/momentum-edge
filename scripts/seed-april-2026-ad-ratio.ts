@@ -62,10 +62,7 @@ async function main(): Promise<void> {
       ad_ratio,
       nse_timestamp: `${row.trade_date}T09:15:00+05:30`,
     });
-    console.log(`Upserted ${row.trade_date} A/D=${ad_ratio?.toFixed(4) ?? '—'}`);
   }
-
-  console.log(`Done: ${ROWS.length} row(s).`);
 }
 
 main().catch((e) => {

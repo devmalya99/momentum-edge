@@ -39,6 +39,7 @@ export async function POST(request: Request) {
         id: userId,
         email: parsed.data.email,
         name: parsed.data.name,
+        role: 'user',
         tradingExperience: '',
         imageUrl: '',
       },

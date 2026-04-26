@@ -55,7 +55,6 @@ function TradingViewScreenerWidget() {
         >
           <span className="text-blue-400 hover:text-blue-300">Stock Screener</span>
         </a>
-        <span className="trademark">&nbsp;by TradingView</span>
       </div>
     </div>
   );

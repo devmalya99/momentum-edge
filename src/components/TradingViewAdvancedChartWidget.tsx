@@ -15,13 +15,13 @@ function buildConfig(tvSymbol: string) {
   return {
     allow_symbol_change: true,
     calendar: false,
-    details: false,
+    details: true,
     hide_side_toolbar: false,
     hide_top_toolbar: false,
     hide_legend: false,
     hide_volume: false,
     hotlist: false,
-    interval: 'D',
+    interval: 'W',
     locale: 'en',
     save_image: true,
     style: '1',
@@ -33,7 +33,10 @@ function buildConfig(tvSymbol: string) {
     watchlist: [],
     withdateranges: true,
     compareSymbols: [],
-    studies: [],
+    show_popup_button: true,
+    popup_height: '650',
+    popup_width: '1000',
+    studies: ['STD;RSI', 'STD;EMA'],
     autosize: true,
   };
 }
@@ -44,9 +47,15 @@ function TradingViewAdvancedChartWidget({ symbol, className }: Props) {
 
   useEffect(() => {
     const container = containerRef.current;
+    // #region agent log
+    fetch('http://127.0.0.1:7877/ingest/29a348b5-a888-4abc-ba35-71baf78f947e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'932973'},body:JSON.stringify({sessionId:'932973',runId:'initial',hypothesisId:'H9',location:'TradingViewAdvancedChartWidget.tsx:47',message:'advanced chart effect start',data:{symbol:tv,hasContainer:Boolean(container)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (!container || !tv) return;
 
     const slot = container.querySelector<HTMLDivElement>('.tradingview-widget-container__widget');
+    // #region agent log
+    fetch('http://127.0.0.1:7877/ingest/29a348b5-a888-4abc-ba35-71baf78f947e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'932973'},body:JSON.stringify({sessionId:'932973',runId:'initial',hypothesisId:'H9',location:'TradingViewAdvancedChartWidget.tsx:52',message:'advanced chart slot lookup',data:{symbol:tv,hasSlot:Boolean(slot),containerClass:container.className},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (!slot) return;
 
     slot.replaceChildren();
@@ -59,8 +68,14 @@ function TradingViewAdvancedChartWidget({ symbol, className }: Props) {
     script.dataset.tvAdvanced = '1';
     script.innerHTML = JSON.stringify(buildConfig(tv));
     container.appendChild(script);
+    // #region agent log
+    fetch('http://127.0.0.1:7877/ingest/29a348b5-a888-4abc-ba35-71baf78f947e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'932973'},body:JSON.stringify({sessionId:'932973',runId:'initial',hypothesisId:'H9',location:'TradingViewAdvancedChartWidget.tsx:65',message:'advanced chart script appended',data:{symbol:tv,scriptSrc:SCRIPT_SRC,childrenCount:container.childElementCount},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     return () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7877/ingest/29a348b5-a888-4abc-ba35-71baf78f947e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'932973'},body:JSON.stringify({sessionId:'932973',runId:'initial',hypothesisId:'H9',location:'TradingViewAdvancedChartWidget.tsx:69',message:'advanced chart cleanup',data:{symbol:tv},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       script.remove();
       slot.replaceChildren();
     };

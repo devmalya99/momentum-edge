@@ -43,14 +43,14 @@ async function fetchStockTags(tickers: string[]): Promise<TagMap> {
   );
 }
 
-async function saveStockTags(ticker: string, tagIds: string[]): Promise<void> {
+async function saveStockTags(ticker: string, tagId: string | null): Promise<void> {
   const res = await fetch('/api/stock-tags', {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
     },
-    body: JSON.stringify({ ticker, tagIds }),
+    body: JSON.stringify({ ticker, tagId }),
   });
   const json = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to save stock tags');
@@ -74,13 +74,13 @@ export function useStockTagsQuery(tickers: string[]) {
     staleTime: 60_000,
   });
   const saveMutation = useMutation({
-    mutationFn: ({ ticker, tagIds }: { ticker: string; tagIds: string[] }) =>
-      saveStockTags(ticker.trim().toUpperCase(), tagIds),
+    mutationFn: ({ ticker, tagId }: { ticker: string; tagId: string | null }) =>
+      saveStockTags(ticker.trim().toUpperCase(), tagId),
     onSuccess: (_data, vars) => {
       const keyTicker = vars.ticker.trim().toUpperCase();
       queryClient.setQueryData<TagMap>(['stock-tags', normalizedTickers], (prev) => {
         const next = new Map(prev ?? []);
-        next.set(keyTicker, Array.from(new Set(vars.tagIds)));
+        next.set(keyTicker, vars.tagId ? [vars.tagId] : []);
         return next;
       });
       void queryClient.invalidateQueries({ queryKey: ['stock-tags'] });

@@ -166,7 +166,6 @@ export default function Analytics() {
           raw: false,
         }) as unknown[][];
         const cleaned = compactRows(rawRows);
-        console.log(`[Analytics xlsx] sheet "${name}" (empty strings removed):`, cleaned);
       }
 
       const result = parsePnlXlsxBufferToIndexedRecord(buf);
@@ -178,7 +177,7 @@ export default function Analytics() {
       await saveAnalyticsPnlUpload(result.data);
       setRecord(result.data);
       setJustSaved(true);
-      console.log('[Analytics xlsx] validated & saved to IndexedDB:', result.data);
+      console.log('[Analytics xlsx] validated & saved to IndexedDB:');
     } catch (err) {
       console.error('[Analytics xlsx] failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to read the file.');

@@ -1,9 +1,124 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTradeStore } from '../store/useTradeStore';
-import { Wallet, ShieldAlert, Database, Trash2, Plus, PieChart, Tag } from 'lucide-react';
+import { Wallet, ShieldAlert, Database, Trash2, Plus, Tag } from 'lucide-react';
+import { useAuthStore } from '@/store/useAuthStore';
+
+type StaticStockTag = {
+  id: string;
+  label: string;
+  sortOrder: number;
+};
+
+const SYSTEM_TAG_IDS = new Set([
+  'no-trend',
+  'short-trend',
+  'long-trend',
+  'base-building',
+]);
 
 export default function Settings() {
   const { settings, updateSettings, trades } = useTradeStore();
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === 'admin';
+  const [stockTags, setStockTags] = useState<StaticStockTag[]>([]);
+  const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const [isSavingTag, setIsSavingTag] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState('');
+  const [tagError, setTagError] = useState<string | null>(null);
+
+  const systemTags = useMemo(
+    () => stockTags.filter((tag) => SYSTEM_TAG_IDS.has(tag.id)),
+    [stockTags],
+  );
+  const customTags = useMemo(
+    () => stockTags.filter((tag) => !SYSTEM_TAG_IDS.has(tag.id)),
+    [stockTags],
+  );
+
+  const deleteStockTag = async (tagId: string) => {
+    if (!isAdmin) return;
+    setIsSavingTag(true);
+    setTagError(null);
+    try {
+      const res = await fetch('/api/static-items', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ id: tagId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to delete tag');
+      setStockTags((prev) => prev.filter((tag) => tag.id !== tagId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete tag';
+      setTagError(message);
+    } finally {
+      setIsSavingTag(false);
+    }
+  };
+
+  const loadStockTags = async () => {
+    setIsLoadingTags(true);
+    setTagError(null);
+    try {
+      const res = await fetch('/api/static-items', { cache: 'no-store' });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        items?: Array<{ id: string; label: string; sortOrder: number }>;
+      };
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to load tags');
+      const next = Array.isArray(json.items) ? json.items : [];
+      setStockTags(next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load tags';
+      setTagError(message);
+    } finally {
+      setIsLoadingTags(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadStockTags();
+  }, []);
+
+  const addStockTag = async () => {
+    const label = newTagLabel.trim();
+    if (!label) return;
+    setIsSavingTag(true);
+    setTagError(null);
+    try {
+      const res = await fetch('/api/static-items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ label }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        item?: { id: string; label: string; sortOrder: number };
+      };
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to create tag');
+      if (json.item) {
+        setStockTags((prev) =>
+          [...prev, json.item as StaticStockTag].sort((a, b) =>
+            a.sortOrder === b.sortOrder ? a.label.localeCompare(b.label) : a.sortOrder - b.sortOrder,
+          ),
+        );
+      } else {
+        await loadStockTags();
+      }
+      setNewTagLabel('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create tag';
+      setTagError(message);
+    } finally {
+      setIsSavingTag(false);
+    }
+  };
 
   const handleClearData = async () => {
     if (confirm('Are you sure you want to clear ALL trade data? This cannot be undone.')) {
@@ -84,7 +199,7 @@ export default function Settings() {
               <div key={type.id} className="bg-[#0a0a0b] p-6 rounded-2xl border border-white/5 space-y-4 relative group">
                 <button
                   onClick={() => deleteTradeType(type.id)}
-                  className="absolute top-4 right-4 p-2 text-red-500/0 group-hover:text-red-500/50 hover:!text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                  className="absolute top-4 right-4 p-2 text-red-500/0 group-hover:text-red-500/50 hover:text-red-400! hover:bg-red-500/10 rounded-xl transition-all"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -135,6 +250,111 @@ export default function Settings() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-6">
+          <div className="flex items-center gap-3">
+            <Tag className="text-emerald-400" size={24} />
+            <h2 className="text-xl font-bold">Stock Tags</h2>
+          </div>
+          <p className="text-sm text-gray-400">
+            Available default tags: No trend, Short trend, Long trend, Base Building.
+            {isAdmin
+              ? ' You can also create and delete custom tags.'
+              : ' Only admins can create or delete custom tags.'}
+          </p>
+
+          <div className="space-y-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">System tags</div>
+            <div className="flex flex-wrap gap-2">
+              {systemTags.map((tag) => (
+                <span
+                  key={`system-stock-tag-${tag.id}`}
+                  className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-gray-200"
+                >
+                  {tag.label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Custom tags</div>
+            <div className="flex flex-wrap gap-2">
+              {customTags.length > 0 ? (
+                customTags.map((tag) => (
+                  <span
+                    key={`custom-stock-tag-${tag.id}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-400/35 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200"
+                  >
+                    {tag.label}
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void deleteStockTag(tag.id);
+                        }}
+                        disabled={isSavingTag}
+                        className="rounded p-0.5 text-emerald-100/80 transition hover:bg-emerald-500/20 hover:text-emerald-50 disabled:opacity-50"
+                        aria-label={`Delete ${tag.label} tag`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    ) : null}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-gray-500">No custom tags yet.</span>
+              )}
+            </div>
+          </div>
+
+          {isAdmin ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={newTagLabel}
+                onChange={(e) => setNewTagLabel(e.target.value)}
+                className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-[#0a0a0b] px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                placeholder="Add custom stock tag..."
+                maxLength={40}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void addStockTag();
+                }}
+                disabled={isSavingTag || !newTagLabel.trim()}
+                className="rounded-xl bg-emerald-500/15 px-4 py-2 text-xs font-bold text-emerald-200 transition-all hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSavingTag ? 'Adding...' : 'Add Tag'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void loadStockTags();
+                }}
+                disabled={isLoadingTags}
+                className="rounded-xl bg-white/5 px-4 py-2 text-xs font-bold text-gray-200 transition-all hover:bg-white/10 disabled:opacity-50"
+              >
+                {isLoadingTags ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void loadStockTags();
+                }}
+                disabled={isLoadingTags}
+                className="rounded-xl bg-white/5 px-4 py-2 text-xs font-bold text-gray-200 transition-all hover:bg-white/10 disabled:opacity-50"
+              >
+                {isLoadingTags ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          )}
+          {tagError ? <p className="text-xs text-red-400">{tagError}</p> : null}
         </section>
 
         {/* Danger Zone */}

@@ -24,34 +24,47 @@
   ],
   "filter": [
     {
+      "left": "change",
+      "operation": "in_range",
+      "right": [
+        -2,
+        10
+      ]
+    },
+    {
       "left": "market_cap_basic",
       "operation": "egreater",
-      "right": 10000000000
+      "right": 1000000000
+    },
+    {
+      "left": "RSI5",
+      "operation": "less",
+      "right": 89
     },
     {
       "left": "AvgValue.Traded_10d",
       "operation": "greater",
-      "right": 50000000
-    },
-    {
-      "left": "Perf.3M",
-      "operation": "greater",
-      "right": 20
-    },
-    {
-      "left": "RSI7|1W",
-      "operation": "greater",
-      "right": 60
+      "right": 30000000
     },
     {
       "left": "RSI5",
       "operation": "greater",
-      "right": 58
+      "right": 60
     },
     {
-      "left": "RSI5|1M",
+      "left": "RSI|1W",
       "operation": "greater",
-      "right": 58
+      "right": 60
+    },
+    {
+      "left": "EMA20",
+      "operation": "egreater",
+      "right": "EMA50"
+    },
+    {
+      "left": "volume_change",
+      "operation": "greater",
+      "right": 10
     },
     {
       "left": "is_primary",
@@ -65,11 +78,11 @@
   },
   "range": [
     0,
-    200
+    100
   ],
   "sort": {
-    "sortBy": "Perf.W",
-    "sortOrder": "asc"
+    "sortBy": "change",
+    "sortOrder": "desc"
   },
   "symbols": {},
   "markets": [

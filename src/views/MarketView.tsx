@@ -1464,12 +1464,12 @@ export default function MarketView() {
                   }}
                 />
                 <ReferenceLine
-                  y={1}
-                  stroke="#6b7280"
+                  y={1.2}
+                  stroke="#ef4444"
                   strokeDasharray="5 5"
                   label={{
-                    value: '1.0 neutral',
-                    fill: '#6b7280',
+                    value: '1.2',
+                    fill: '#ef4444',
                     fontSize: 10,
                     position: 'insideTopRight',
                   }}

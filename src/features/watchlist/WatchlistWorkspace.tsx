@@ -11,6 +11,8 @@ import TechnicalChartScoreControl, {
   stockTagBadgeClass,
 } from '@/components/TechnicalChartScoreControl';
 import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
+import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
+import { useRelativeTurnoverMap } from '@/features/relative-turnover/useRelativeTurnover';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
@@ -19,6 +21,7 @@ import { useTradeStore } from '@/store/useTradeStore';
 import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
 import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
@@ -41,6 +44,8 @@ export default function WatchlistWorkspace() {
   const watchlist = useTradeStore((s) => s.watchlist);
   const watchlistLists = useTradeStore((s) => s.watchlistLists);
   const removeFromWatchlist = useTradeStore((s) => s.removeFromWatchlist);
+  const authUser = useAuthStore((s) => s.user);
+  const canEditStockTags = authUser?.role === 'admin';
   const addToWatchlist = useTradeStore((s) => s.addToWatchlist);
   const addManyToWatchlist = useTradeStore((s) => s.addManyToWatchlist);
   const createWatchlistList = useTradeStore((s) => s.createWatchlistList);
@@ -93,6 +98,7 @@ export default function WatchlistWorkspace() {
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
+  const [minRelativeTurnoverPct, setMinRelativeTurnoverPct] = useState(0);
 
   const symbolsForQuotes = useMemo(() => {
     const s = new Set<string>();
@@ -110,6 +116,7 @@ export default function WatchlistWorkspace() {
     () => itemsForList.filter((item) => item.kind === 'equity').map((item) => item.symbol),
     [itemsForList],
   );
+  const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(technicalScoreTickers);
 
   const quoteQueries = useQueries({
     queries: symbolsForQuotes.map((symbol) => ({
@@ -194,9 +201,24 @@ export default function WatchlistWorkspace() {
     },
     [activeTagFilters, stockTagsByTicker],
   );
+  const matchesRelativeTurnoverFilter = useCallback(
+    (symbol: string, kind: 'equity' | 'index') => {
+      if (kind !== 'equity') return true;
+      if (minRelativeTurnoverPct <= 0) return true;
+      const metric = relativeTurnoverBySymbol.get(symbol.trim().toUpperCase());
+      if (!metric) return false;
+      return metric.relativeTurnoverPct >= minRelativeTurnoverPct;
+    },
+    [minRelativeTurnoverPct, relativeTurnoverBySymbol],
+  );
   const filteredSortedWatchlist = useMemo(
-    () => sortedWatchlist.filter((item) => matchesActiveTagFilter(item.symbol, item.kind)),
-    [sortedWatchlist, matchesActiveTagFilter],
+    () =>
+      sortedWatchlist.filter(
+        (item) =>
+          matchesActiveTagFilter(item.symbol, item.kind) &&
+          matchesRelativeTurnoverFilter(item.symbol, item.kind),
+      ),
+    [sortedWatchlist, matchesActiveTagFilter, matchesRelativeTurnoverFilter],
   );
   const selectedItemId = useMemo(() => {
     if (filteredSortedWatchlist.length === 0) return '';
@@ -513,6 +535,10 @@ export default function WatchlistWorkspace() {
                 );
               })}
             </div>
+            <RelativeTurnoverFilterControl
+              value={minRelativeTurnoverPct}
+              onChange={setMinRelativeTurnoverPct}
+            />
             <div className="relative z-20">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"
@@ -706,6 +732,15 @@ export default function WatchlistWorkspace() {
                             </span>
                           </div>
                           <div className="mt-0.5 truncate text-[11px] text-gray-500">{item.companyName}</div>
+                          {item.kind === 'equity' ? (
+                            <div className="mt-1 text-[10px] font-semibold text-cyan-300">
+                              30D Turnover/MCap:{' '}
+                              {relativeTurnoverBySymbol
+                                .get(symU)
+                                ?.relativeTurnoverPct.toFixed(2)
+                                .concat('%') ?? '—'}
+                            </div>
+                          ) : null}
                           <div className="mt-1 font-mono text-[10px] text-gray-600">
                             {item.kind === 'index' ? 'INDEX' : toTradingViewSymbol(item.symbol)}
                           </div>
@@ -769,10 +804,11 @@ export default function WatchlistWorkspace() {
                   ticker={selectedWatchlistItem.symbol}
                   staticTags={staticTags}
                   selectedTagIds={stockTagsByTicker.get(selectedTechnicalScoreTicker) ?? []}
+                  canEdit={canEditStockTags}
                   isLoading={isLoadingStaticTags || isLoadingStockTags || isFetchingStockTags}
                   isSaving={isSavingTags}
-                  onSaveTags={async (tagIds) => {
-                    await saveTags({ ticker: selectedWatchlistItem.symbol, tagIds });
+                  onSaveTag={async (tagId) => {
+                    await saveTags({ ticker: selectedWatchlistItem.symbol, tagId });
                   }}
                 />
               ) : null}
