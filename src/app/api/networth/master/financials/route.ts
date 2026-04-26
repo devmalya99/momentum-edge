@@ -2,12 +2,20 @@ import { NextResponse } from 'next/server';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
 import { updateMasterFinancialField } from '@/lib/db/user-networth-master';
 
-type FinancialField = 'duePayables' | 'receivables' | 'ppf' | 'liquidFund';
+type FinancialField =
+  | 'duePayables'
+  | 'receivables'
+  | 'ppf'
+  | 'liquidFund'
+  | 'zerodhaCashHolding'
+  | 'bankBalance';
 
 function mapFieldToDbColumn(field: FinancialField) {
+  if (field === 'bankBalance') return 'bankBalance' as const;
   if (field === 'duePayables') return 'totalCreditCardDue' as const;
   if (field === 'receivables') return 'receivables' as const;
   if (field === 'ppf') return 'ppfAmount' as const;
+  if (field === 'zerodhaCashHolding') return 'zerodhaCashHolding' as const;
   return 'liquidFundInvestment' as const;
 }
 
@@ -29,7 +37,9 @@ export async function PATCH(request: Request) {
       field !== 'duePayables' &&
       field !== 'receivables' &&
       field !== 'ppf' &&
-      field !== 'liquidFund'
+      field !== 'liquidFund' &&
+      field !== 'zerodhaCashHolding' &&
+      field !== 'bankBalance'
     ) {
       return NextResponse.json({ error: 'Invalid field' }, { status: 400 });
     }

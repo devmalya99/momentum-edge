@@ -55,6 +55,7 @@ function formatPct(n: number | null, digits = 1): string {
 
 type NetworthMasterSnapshot = {
   currentHoldingValue: number;
+  zerodhaCashHolding?: number;
   marginAmount: number;
   realInvestFromBank: number;
 };
@@ -120,6 +121,7 @@ export default function Analytics() {
 
   const master = networthMasterQuery.data;
   const currentHolding = master ? Number(master.currentHoldingValue) || 0 : 0;
+  const zerodhaCashHolding = master ? Number(master.zerodhaCashHolding) || 0 : 0;
   const marginAmt = master ? Number(master.marginAmount) || 0 : 0;
   const bankSaved = master ? Number(master.realInvestFromBank) || 0 : 0;
   const draftBank = (() => {
@@ -127,9 +129,19 @@ export default function Analytics() {
     return Number.isFinite(n) && n >= 0 ? n : bankSaved;
   })();
   const realReturnLifeTimeSaved =
-    master !== null && master !== undefined ? currentHolding - marginAmt - bankSaved : null;
+    master !== null && master !== undefined
+      ? currentHolding + zerodhaCashHolding - marginAmt - bankSaved
+      : null;
   const realReturnLifeTimePreview =
-    master !== null && master !== undefined ? currentHolding - marginAmt - draftBank : null;
+    master !== null && master !== undefined
+      ? currentHolding + zerodhaCashHolding - marginAmt - draftBank
+      : null;
+  const totalReturnPctSaved =
+    realReturnLifeTimeSaved !== null && bankSaved > 0 ? (realReturnLifeTimeSaved / bankSaved) * 100 : null;
+  const endValueSaved =
+    master !== null && master !== undefined ? currentHolding + zerodhaCashHolding - marginAmt : null;
+  const cagrAssumeOneYearSaved =
+    endValueSaved !== null && bankSaved > 0 ? (Math.pow(endValueSaved / bankSaved, 1 / 1) - 1) * 100 : null;
   const bankInputDirty =
     master !== null &&
     master !== undefined &&
@@ -188,26 +200,41 @@ export default function Analytics() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-20">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
-        <p className="text-gray-400 mt-1">
-          Upload a Zerodha-style equity P&amp;L (.xlsx). Data is saved to IndexedDB and synced into this
-          session via the local store. Open the console to inspect compact sheet rows.
-        </p>
+    <div className="max-w-6xl mx-auto space-y-8 pb-20">
+      <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-[#090d16] p-6 sm:p-8">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(6,182,212,0.2),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.2),transparent_40%)]" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-white">Analytics</h1>
+            <p className="mt-2 max-w-2xl text-sm text-cyan-100/70">
+              Comprehensive capital breakdown and realized P&amp;L verification across your current
+              investment lifecycle.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <span className="inline-flex items-center rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100/80">
+              Verified ledger
+            </span>
+            <span className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-300">
+              Session local sync
+            </span>
+          </div>
+        </div>
       </div>
 
-      <section className="p-8 rounded-3xl bg-violet-600/5 border border-violet-500/15 space-y-6">
+      <section className="rounded-3xl border border-cyan-500/20 bg-[#070c14] p-8 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] space-y-6">
         <div className="flex items-center gap-2">
-          <Landmark className="text-violet-400" size={22} />
-          <h2 className="text-lg font-semibold tracking-tight">Bank capital &amp; true market profit</h2>
+          <Landmark className="text-cyan-300" size={22} />
+          <h2 className="text-lg font-semibold tracking-tight text-cyan-100">Bank capital &amp; true market profit</h2>
         </div>
-        <p className="text-xs text-gray-500 leading-relaxed">
+        <p className="text-xs text-cyan-100/60 leading-relaxed">
           Enter the <span className="text-gray-400">net</span> amount you have transferred from your bank into
           this trading account over time (cash in, ignoring paper margin). We store it as{' '}
           <span className="font-mono text-gray-400">real_invest_from_bank</span> on the server. Lifetime true
           return uses your uploaded holdings value and broker margin from the Networth flow:{' '}
-          <span className="font-mono text-gray-400">current_holding_value − margin_amount − real_invest_from_bank</span>.
+          <span className="font-mono text-gray-400">
+            current_holding_value + zerodha_cash_holding − margin_amount − real_invest_from_bank
+          </span>.
         </p>
 
         {networthMasterQuery.isPending ? (
@@ -220,7 +247,7 @@ export default function Analytics() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
+              <div className="p-5 rounded-2xl bg-[#080b12] border border-cyan-500/15 space-y-3">
                 <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500">
                   real_invest_from_bank (₹)
                 </label>
@@ -245,7 +272,7 @@ export default function Analytics() {
                     const v = Number.isFinite(n) && n >= 0 ? n : 0;
                     void saveBankInvestMutation.mutateAsync(v);
                   }}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-[#001018] text-xs font-bold uppercase tracking-wider"
                 >
                   {saveBankInvestMutation.isPending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -256,7 +283,7 @@ export default function Analytics() {
                   <p className="text-xs text-red-400">{saveBankInvestMutation.error.message}</p>
                 ) : null}
               </div>
-              <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5 ring-1 ring-white/10 space-y-3">
+              <div className="p-5 rounded-2xl bg-[#080b12] border border-cyan-500/15 ring-1 ring-cyan-500/20 space-y-3">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
                   real_return_life_time (saved)
                 </div>
@@ -277,12 +304,28 @@ export default function Analytics() {
                     <span>{formatInr(currentHolding)}</span>
                   </div>
                   <div className="flex justify-between gap-2">
+                    <span className="text-gray-500">+ zerodha_cash_holding</span>
+                    <span>+{formatInr(zerodhaCashHolding)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
                     <span className="text-gray-500">− margin_amount</span>
                     <span>−{formatInr(marginAmt)}</span>
                   </div>
                   <div className="flex justify-between gap-2">
                     <span className="text-gray-500">− real_invest_from_bank</span>
                     <span>−{formatInr(bankSaved)}</span>
+                  </div>
+                </div>
+                <div className="border-t border-white/10 pt-3 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-500">total_return_%</span>
+                    <span className={signedClass(totalReturnPctSaved ?? 0)}>{formatPct(totalReturnPctSaved, 2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-500">cagr (assume 1 year)</span>
+                    <span className={signedClass(cagrAssumeOneYearSaved ?? 0)}>
+                      {formatPct(cagrAssumeOneYearSaved, 2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -300,18 +343,18 @@ export default function Analytics() {
       </section>
 
       {overview && (
-        <section className="p-8 rounded-3xl bg-emerald-600/5 border border-emerald-500/15 space-y-6">
+        <section className="rounded-3xl border border-white/10 bg-[#0a1019] p-8 space-y-6">
           <div className="flex items-center gap-2">
-            <Wallet className="text-emerald-400" size={22} />
-            <h2 className="text-lg font-semibold tracking-tight">P&amp;L overview</h2>
+            <Wallet className="text-emerald-300" size={22} />
+            <h2 className="text-lg font-semibold tracking-tight text-white">P&amp;L overview</h2>
           </div>
-          <p className="text-xs text-gray-500 leading-relaxed">
+          <p className="text-xs text-gray-400 leading-relaxed">
             Totals use per-symbol <span className="text-gray-400">realised_pnl</span> from your file.
             Charges and other credit/debit come from the broker summary block. Net after fees = sum of
             symbol P&amp;L − charges + other credit &amp; debit (signed).
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5">
+            <div className="p-5 rounded-2xl bg-[#070b11] border border-emerald-500/15">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
                 <TrendingUp className="text-emerald-500/90" size={14} />
                 Total profit (before fees &amp; charges)
@@ -321,7 +364,7 @@ export default function Analytics() {
               </div>
               <p className="text-[11px] text-gray-600 mt-1">Sum of winning symbol rows only</p>
             </div>
-            <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5">
+            <div className="p-5 rounded-2xl bg-[#070b11] border border-red-500/15">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
                 <TrendingDown className="text-red-400/90" size={14} />
                 Total loss
@@ -331,7 +374,7 @@ export default function Analytics() {
               </div>
               <p className="text-[11px] text-gray-600 mt-1">Magnitude from losing symbol rows</p>
             </div>
-            <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5">
+            <div className="p-5 rounded-2xl bg-[#070b11] border border-amber-500/15">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
                 <Receipt className="text-amber-400/90" size={14} />
                 Total charges
@@ -341,7 +384,7 @@ export default function Analytics() {
               </div>
               <p className="text-[11px] text-gray-600 mt-1">From summary &quot;Charges&quot; line</p>
             </div>
-            <div className="p-5 rounded-2xl bg-[#0a0a0b] border border-white/5 ring-1 ring-white/10">
+            <div className="p-5 rounded-2xl bg-[#070b11] border border-cyan-500/20 ring-1 ring-cyan-500/20">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">
                 <Wallet className="text-blue-400/90" size={14} />
                 Profit after fees &amp; charges
@@ -358,10 +401,12 @@ export default function Analytics() {
       )}
 
       {chartTrades.length > 0 && (
-        <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
+        <section className="rounded-3xl border border-cyan-500/20 bg-[#070d16] p-8 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">Cumulative realized profit</h2>
-            <p className="text-xs text-gray-500 mt-1 max-w-2xl leading-relaxed">
+            <h2 className="text-lg font-semibold tracking-tight text-cyan-100">
+              Cumulative realized profit chart
+            </h2>
+            <p className="text-xs text-cyan-100/60 mt-1 max-w-2xl leading-relaxed">
               Running total of per-symbol <span className="text-gray-400">realised_pnl</span> in the
               order rows appear in your workbook. Starts at zero; each step adds that row&apos;s P&amp;L
               (can go negative). This is trading profit only — not cash balance, margin, or holdings
@@ -523,7 +568,7 @@ export default function Analytics() {
         </section>
       )}
 
-      <section className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-6">
+      <section className="p-8 rounded-3xl bg-[#14181f] border border-white/10 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Upload className="text-emerald-400" size={24} />
@@ -571,22 +616,29 @@ export default function Analytics() {
       </section>
 
       {record && sum && (
-        <section className="p-8 rounded-3xl bg-[#0a0a0b] border border-white/5 space-y-4">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Broker summary (stored)</h3>
+        <section className="p-8 rounded-3xl bg-[#0b1119] border border-cyan-500/15 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-cyan-100/80 uppercase tracking-widest">
+              Broker summary (stored)
+            </h3>
+            <span className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-wider text-gray-300">
+              Read only
+            </span>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div className="flex justify-between gap-4 p-3 rounded-xl bg-white/3 border border-white/5">
+            <div className="flex justify-between gap-4 p-3 rounded-xl bg-[#0f1621] border border-white/10">
               <span className="text-gray-500">Charges</span>
               <span className="font-mono tabular-nums">{sum.Charges ?? '—'}</span>
             </div>
-            <div className="flex justify-between gap-4 p-3 rounded-xl bg-white/3 border border-white/5">
+            <div className="flex justify-between gap-4 p-3 rounded-xl bg-[#0f1621] border border-white/10">
               <span className="text-gray-500">Other Credit &amp; Debit</span>
               <span className="font-mono tabular-nums">{sum['Other Credit & Debit'] ?? '—'}</span>
             </div>
-            <div className="flex justify-between gap-4 p-3 rounded-xl bg-white/3 border border-white/5">
+            <div className="flex justify-between gap-4 p-3 rounded-xl bg-[#0f1621] border border-white/10">
               <span className="text-gray-500">Realized P&amp;L</span>
               <span className="font-mono tabular-nums">{sum['Realized P&L'] ?? '—'}</span>
             </div>
-            <div className="flex justify-between gap-4 p-3 rounded-xl bg-white/3 border border-white/5">
+            <div className="flex justify-between gap-4 p-3 rounded-xl bg-[#0f1621] border border-white/10">
               <span className="text-gray-500">Unrealized P&amp;L</span>
               <span className="font-mono tabular-nums">{sum['Unrealized P&L'] ?? '—'}</span>
             </div>
