@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useCallback, useState } from 'react';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
@@ -143,8 +143,17 @@ export default function Scanner52wWorkspace() {
     return [];
   }, [isTvTab, tvRows]);
   const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(scannerListTickers);
-  const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(scannerListTickers);
-  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(scannerListTickers);
+  const selectedTickerForMetrics = useMemo(() => {
+    if (!isTvTab || !querySymbol) return '';
+    const selected = tvRows.find((row) => row.tvSymbol === querySymbol);
+    return selected ? selected.ticker.trim().toUpperCase() : '';
+  }, [isTvTab, querySymbol, tvRows]);
+  const metricTickers = useMemo(
+    () => (selectedTickerForMetrics ? [selectedTickerForMetrics] : []),
+    [selectedTickerForMetrics],
+  );
+  const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(metricTickers);
+  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(metricTickers);
 
   const watchlist = useTradeStore((s) => s.watchlist);
   const authUser = useAuthStore((s) => s.user);
@@ -259,35 +268,6 @@ export default function Scanner52wWorkspace() {
       document.removeEventListener('visibilitychange', updateFocusState);
     };
   }, []);
-  const tvTickersForQuotes = useMemo(
-    () => [...new Set(filteredTvRows.filter((row) => row.isNse).map((row) => row.ticker.trim().toUpperCase()))],
-    [filteredTvRows],
-  );
-  const tvQuoteQueries = useQueries({
-    queries: tvTickersForQuotes.map((ticker) => ({
-      queryKey: ['nse-equity-quote', ticker] as const,
-      queryFn: () => fetchNseEquityQuoteRow(ticker),
-      enabled:
-        isTvTab &&
-        isScreenFocused &&
-        (isLiveMarketSession ||
-          queryClient.getQueryData(['nse-equity-quote', ticker]) == null),
-      staleTime: 10 * 60 * 1000,
-      gcTime: 24 * 60 * 60 * 1000,
-      refetchInterval: () => (isLiveMarketSession && isScreenFocused ? 10 * 60 * 1000 : false),
-      refetchIntervalInBackground: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-    })),
-  });
-  const pChangeByTicker = useMemo(() => {
-    const map = new Map<string, number>();
-    tvTickersForQuotes.forEach((ticker, idx) => {
-      const p = tvQuoteQueries[idx]?.data?.metaData?.pChange;
-      if (typeof p === 'number' && Number.isFinite(p)) map.set(ticker, p);
-    });
-    return map;
-  }, [tvTickersForQuotes, tvQuoteQueries]);
   const selectedTvSymbol = useMemo(() => {
     if (isTvTab) {
       if (filteredTvRows.length === 0) return '';
@@ -296,6 +276,29 @@ export default function Scanner52wWorkspace() {
     }
     return querySymbol?.trim() ?? '';
   }, [isTvTab, filteredTvRows, querySymbol]);
+  const selectedTickerForQuote = useMemo(() => {
+    if (!isTvTab || !querySymbol) return '';
+    const selected = tvRows.find((row) => row.tvSymbol === querySymbol);
+    if (!selected?.isNse) return '';
+    return selected.ticker.trim().toUpperCase();
+  }, [isTvTab, querySymbol, tvRows]);
+  const selectedQuoteQuery = useQuery({
+    queryKey: ['nse-equity-quote', selectedTickerForQuote] as const,
+    queryFn: () => fetchNseEquityQuoteRow(selectedTickerForQuote),
+    enabled:
+      isTvTab &&
+      !!selectedTickerForQuote &&
+      isScreenFocused &&
+      (isLiveMarketSession ||
+        queryClient.getQueryData(['nse-equity-quote', selectedTickerForQuote]) == null),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchInterval: () => (isLiveMarketSession && isScreenFocused ? 10 * 60 * 1000 : false),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const selectedPChange = selectedQuoteQuery.data?.metaData?.pChange;
 
   const chartNseSymbol = useMemo(() => {
     if (isTvTab) {
@@ -325,9 +328,17 @@ export default function Scanner52wWorkspace() {
     if (filteredTvRows.length === 0) return;
     if (!querySymbol || !filteredTvRows.some((r) => r.tvSymbol === querySymbol)) {
       const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', scannerTab);
+      if (scannerTab === '52h') {
+        params.delete('tab');
+      } else {
+        params.set('tab', scannerTab);
+      }
       params.set('symbol', filteredTvRows[0].tvSymbol);
-      router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
+      const nextQuery = params.toString();
+      const currentQuery = searchParams.toString();
+      if (nextQuery !== currentQuery) {
+        router.replace(nextQuery ? `/52w-scanner?${nextQuery}` : '/52w-scanner', { scroll: false });
+      }
     }
   }, [isTvTab, scannerTab, filteredTvRows, querySymbol, router, searchParams]);
 
@@ -631,10 +642,16 @@ export default function Scanner52wWorkspace() {
               <ul>
                 {filteredTvRows.map((row) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
-                  const ch = pChangeByTicker.get(row.ticker.trim().toUpperCase()) ?? row.changePct;
+                  const upperTicker = row.ticker.trim().toUpperCase();
+                  const ch =
+                    isSelected &&
+                    selectedTickerForQuote === upperTicker &&
+                    typeof selectedPChange === 'number' &&
+                    Number.isFinite(selectedPChange)
+                      ? selectedPChange
+                      : row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
                   const bookmarked = isBookmarkedTicker(row.ticker);
-                  const upperTicker = row.ticker.trim().toUpperCase();
                   const aiScore = aiScoreByTicker.get(upperTicker);
                   const tagIds = stockTagsByTicker.get(upperTicker) ?? [];
 
