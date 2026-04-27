@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Loader2, RefreshCcw, Sparkles } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import {
   Sheet,
@@ -11,11 +11,20 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import type {
-  FinancialRating,
+  FinancialMetricRating,
   QualitativeVerdict,
-  StockOverviewApiResponse,
-} from '@/lib/ai/stock-overview';
-import { AI_STOCK_OVERVIEW_STALE_MS, stockOverviewApiResponseSchema } from '@/lib/ai/stock-overview';
+  QuantamentalScoredResult,
+  QuantamentalVerdict,
+  ValuationRating,
+} from '@/lib/validations/stock-schema';
+import { quantamentalScoredResultSchema } from '@/lib/validations/stock-schema';
+
+const SECTION_MAX = {
+  financial: 20,
+  qualitative: 50,
+  valuation: 10,
+  technical: 20,
+} as const;
 
 type StockAiOverviewSheetProps = {
   open: boolean;
@@ -25,17 +34,16 @@ type StockAiOverviewSheetProps = {
 };
 
 const financialMetricLabels: Record<
-  keyof StockOverviewApiResponse['analysis']['financialAnalysis'],
+  keyof QuantamentalScoredResult['data']['analysis']['financialAnalysis']['metrics'],
   string
 > = {
   revenueGrowth: 'Revenue Growth',
-  profitGrowth: 'Profit Growth',
   epsGrowth: 'EPS Growth',
-  profitMarginExpansion: 'Profit Margin Expansion',
-  freeCashFlowGrowth: 'Free Cash Flow Growth',
+  marginExpansion: 'Margin Expansion',
+  freeCashFlow: 'Operating Cash Flow Strength',
 };
 
-function ratingChipClass(rating: FinancialRating): string {
+function ratingChipClass(rating: FinancialMetricRating): string {
   if (rating === 'hyper') return 'border-emerald-400/40 bg-emerald-500/20 text-emerald-200';
   if (rating === 'good') return 'border-blue-400/40 bg-blue-500/20 text-blue-200';
   if (rating === 'avg') return 'border-amber-400/40 bg-amber-500/20 text-amber-200';
@@ -44,34 +52,52 @@ function ratingChipClass(rating: FinancialRating): string {
 
 function verdictChipClass(verdict: QualitativeVerdict): string {
   if (verdict === 'yes') return 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200';
-  if (verdict === 'no') return 'border-amber-400/40 bg-amber-500/15 text-amber-200';
+  if (verdict === 'neutral') return 'border-amber-400/40 bg-amber-500/15 text-amber-200';
+  return 'border-rose-400/40 bg-rose-500/15 text-rose-200';
+}
+
+function valuationChipClass(rating: ValuationRating): string {
+  if (rating === 'undervalued') return 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200';
+  if (rating === 'fair') return 'border-blue-400/40 bg-blue-500/15 text-blue-200';
   return 'border-rose-400/40 bg-rose-500/15 text-rose-200';
 }
 
 function scoreBarClass(score: number): string {
-  if (score >= 75) return 'bg-emerald-500';
-  if (score >= 55) return 'bg-blue-500';
+  if (score >= 80) return 'bg-emerald-500';
+  if (score >= 65) return 'bg-blue-500';
   if (score >= 40) return 'bg-amber-500';
   return 'bg-rose-500';
+}
+
+function verdictChipClassFromScore(verdict: QuantamentalVerdict): string {
+  if (verdict === 'Strong Buy') return 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200';
+  if (verdict === 'Accumulate') return 'border-blue-400/40 bg-blue-500/15 text-blue-200';
+  if (verdict === 'Hold') return 'border-amber-400/40 bg-amber-500/15 text-amber-200';
+  return 'border-rose-400/40 bg-rose-500/15 text-rose-200';
+}
+
+function toPercent(value: number, max: number): number {
+  if (!Number.isFinite(value) || max <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((value / max) * 100)));
 }
 
 async function fetchStockOverview(
   ticker: string,
   companyName: string,
-): Promise<StockOverviewApiResponse> {
-  const res = await fetch('/api/ai/stock-overview', {
+): Promise<QuantamentalScoredResult> {
+  const res = await fetch('/api/analyze', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'text/plain',
       'X-Requested-With': 'XMLHttpRequest',
     },
-    body: JSON.stringify({ ticker, companyName }),
+    body: `Analyze ${ticker}${companyName ? ` (${companyName})` : ''}`,
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
     error?: string;
   };
   if (!res.ok) throw new Error(json.error || 'Failed to generate overview.');
-  return stockOverviewApiResponseSchema.parse(json);
+  return quantamentalScoredResultSchema.parse(json);
 }
 
 export default function StockAiOverviewSheet({
@@ -80,19 +106,23 @@ export default function StockAiOverviewSheet({
   ticker,
   companyName,
 }: StockAiOverviewSheetProps) {
+  const queryClient = useQueryClient();
   const normalizedTicker = ticker.trim().toUpperCase();
   const q = useQuery({
-    queryKey: ['ai', 'stock-overview', normalizedTicker],
+    queryKey: ['ai', 'quantamental-overview', normalizedTicker],
     queryFn: () => fetchStockOverview(ticker, companyName),
     enabled: open && normalizedTicker.length > 0,
-    staleTime: AI_STOCK_OVERVIEW_STALE_MS,
-    gcTime: AI_STOCK_OVERVIEW_STALE_MS,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['ai', 'quantamental-scores'] });
+    },
   });
-  const objectiveScore = useMemo(() => {
+  const quantamentalScore = useMemo(() => {
     if (!q.data) return null;
-    const value = q.data.analysis.score.objectiveScore;
+    const value = q.data.scores.total;
     if (!Number.isFinite(value)) return null;
     return Math.max(0, Math.min(100, Math.round(value)));
   }, [q.data]);
@@ -114,16 +144,18 @@ export default function StockAiOverviewSheet({
             <SheetTitle className="text-white">
               {normalizedTicker || 'Select a stock'}
             </SheetTitle>
-            {objectiveScore != null ? (
+            {quantamentalScore != null ? (
               <div className="flex items-center gap-2">
                 <span className="rounded-lg border border-emerald-400/30 bg-emerald-500/15 px-2.5 py-1 text-xs font-bold text-emerald-200">
-                  {objectiveScore}%
+                  {quantamentalScore}%
                 </span>
-                {q.data ? (
-                  <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                    {q.data.meta.cacheStatus}
+                {q.data && (
+                  <span
+                    className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${verdictChipClassFromScore(q.data.verdict)}`}
+                  >
+                    {q.data.verdict}
                   </span>
-                ) : null}
+                )}
               </div>
             ) : null}
           </div>
@@ -140,7 +172,7 @@ export default function StockAiOverviewSheet({
           ) : q.isPending ? (
             <div className="flex items-center gap-2 text-sm text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Generating overview…
+              Generating quantamental overview...
             </div>
           ) : q.isError ? (
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-gray-300">
@@ -167,38 +199,44 @@ export default function StockAiOverviewSheet({
             <div className="space-y-3">
               <div className="rounded-xl border border-white/10 bg-[#141925] p-3">
                 <p className="text-[11px] uppercase tracking-wide text-gray-400">
-                  Fast objective framework (backend-scored)
+                  Quantamental framework (backend-scored)
                 </p>
                 <p className="mt-1 text-xs text-gray-300">
-                  AI writes thesis only; backend computes score from your fixed framework to keep logic consistent and cheap.
+                  AI outputs categories only, and backend computes weighted math so scoring stays deterministic.
                 </p>
-                {q.data ? (
-                  <p className="mt-2 text-[11px] text-gray-400">
-                    Generated: {new Date(q.data.meta.generatedAt).toLocaleString('en-IN')} | Stale after:{' '}
-                    {new Date(q.data.meta.staleAfter).toLocaleString('en-IN')}
-                  </p>
-                ) : null}
               </div>
               <div className="space-y-4 rounded-xl border border-white/10 bg-[#11141b] p-3 text-sm leading-relaxed text-gray-200">
                 <section>
                   <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Overall Score</h3>
                   <div className="mt-2 rounded-lg border border-white/10 bg-[#0d1016] p-3">
                     <div className="flex items-center justify-between text-xs text-gray-300">
-                      <span>Objective score</span>
-                      <span className="font-bold text-white">{q.data?.analysis.score.objectiveScore}%</span>
+                      <span>Quantamental score</span>
+                      <span className="font-bold text-white">
+                        {q.data?.scores.total} / 100 ({toPercent(q.data?.scores.total ?? 0, 100)}%)
+                      </span>
                     </div>
                     <div className="mt-2 h-2.5 rounded-full bg-white/10">
                       <div
-                        className={`h-full rounded-full ${scoreBarClass(q.data?.analysis.score.objectiveScore ?? 0)}`}
-                        style={{ width: `${q.data?.analysis.score.objectiveScore ?? 0}%` }}
+                        className={`h-full rounded-full ${scoreBarClass(q.data?.scores.total ?? 0)}`}
+                        style={{ width: `${q.data?.scores.total ?? 0}%` }}
                       />
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-gray-300 sm:grid-cols-2">
                       <div className="rounded-md border border-white/10 bg-white/3 p-2">
-                        Financial: {q.data?.analysis.score.financialPoints}/50 ({q.data?.analysis.score.sectionPercentages.financial}%)
+                        Financial: {q.data?.scores.financial}/{SECTION_MAX.financial} (
+                        {toPercent(q.data?.scores.financial ?? 0, SECTION_MAX.financial)}%)
                       </div>
                       <div className="rounded-md border border-white/10 bg-white/3 p-2">
-                        Qualitative: {q.data?.analysis.score.qualitativePoints}/90 ({q.data?.analysis.score.sectionPercentages.qualitative}%)
+                        Qualitative: {q.data?.scores.qualitative}/{SECTION_MAX.qualitative} (
+                        {toPercent(q.data?.scores.qualitative ?? 0, SECTION_MAX.qualitative)}%)
+                      </div>
+                      <div className="rounded-md border border-white/10 bg-white/3 p-2">
+                        Valuation: {q.data?.scores.valuation}/{SECTION_MAX.valuation} (
+                        {toPercent(q.data?.scores.valuation ?? 0, SECTION_MAX.valuation)}%)
+                      </div>
+                      <div className="rounded-md border border-white/10 bg-white/3 p-2">
+                        Technical: {q.data?.scores.technical}/{SECTION_MAX.technical} (
+                        {toPercent(q.data?.scores.technical ?? 0, SECTION_MAX.technical)}%)
                       </div>
                     </div>
                   </div>
@@ -207,34 +245,32 @@ export default function StockAiOverviewSheet({
                 <section>
                   <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Fundamental Story</h3>
                   <div className="mt-2 rounded-lg border border-white/10 bg-[#0f131b] p-3 text-[13px]">
-                    <p className="whitespace-pre-wrap text-gray-200">{q.data?.analysis.fundamentalStory.businessExplanation}</p>
+                    <p className="whitespace-pre-wrap text-gray-200">
+                      {q.data?.data.analysis.fundamentalStory.companyOverview.whatItDoes}
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <span className="rounded-md border border-white/10 bg-white/4 px-2 py-1 text-[11px] text-gray-300">
-                        Core: {q.data?.analysis.fundamentalStory.coreSegment}
-                      </span>
-                      <span className="rounded-md border border-emerald-400/20 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
-                        Fastest: {q.data?.analysis.fundamentalStory.mostGrowingSegment}
+                        Fastest Segment:{' '}
+                        {q.data?.data.analysis.fundamentalStory.companyOverview.revenueSegments.fastestGrowing}
                       </span>
                     </div>
                   </div>
                 </section>
 
                 <section>
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Financial Analysis (5 Metrics)</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Financial Analysis (4 Metrics)</h3>
                   <div className="mt-2 grid grid-cols-1 gap-2">
                     {(Object.keys(financialMetricLabels) as Array<keyof typeof financialMetricLabels>).map((key) => {
-                      const item = q.data?.analysis.financialAnalysis[key];
-                      if (!item) return null;
+                      const rating = q.data?.data.analysis.financialAnalysis.metrics[key];
+                      if (!rating) return null;
                       return (
                         <div key={key} className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-[12px] font-semibold text-white">{financialMetricLabels[key]}</p>
-                            <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${ratingChipClass(item.rating)}`}>
-                              {item.rating}
+                            <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${ratingChipClass(rating)}`}>
+                              {rating}
                             </span>
                           </div>
-                          <p className="mt-1 text-[12px] text-blue-200">Numeric: {item.numericEvidence}</p>
-                          <p className="mt-1 text-[12px] text-gray-300">{item.explanation}</p>
                         </div>
                       );
                     })}
@@ -242,12 +278,12 @@ export default function StockAiOverviewSheet({
                 </section>
 
                 <section>
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Qualitative Analysis (9 Questions)</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Qualitative Analysis</h3>
                   <ul className="mt-2 space-y-2">
-                    {q.data?.analysis.qualitativeAnalysis.map((item) => (
-                      <li key={item.id} className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                    {q.data?.data.analysis.qualitativeAnalysis.metrics.map((item) => (
+                      <li key={item.category} className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-[12px] font-semibold text-white">{item.id}. {item.question}</p>
+                          <p className="text-[12px] font-semibold text-white">{item.category}</p>
                           <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${verdictChipClass(item.verdict)}`}>
                             {item.verdict}
                           </span>
@@ -259,20 +295,129 @@ export default function StockAiOverviewSheet({
                 </section>
 
                 <section>
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Conclusion</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Valuation Analysis</h3>
+                  <div className="mt-2 space-y-2">
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] font-semibold text-white">Vs Industry</p>
+                        <span
+                          className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${valuationChipClass(
+                            q.data?.data.analysis.valuationAnalysis.vsIndustry.rating ?? 'fair',
+                          )}`}
+                        >
+                          {q.data?.data.analysis.valuationAnalysis.vsIndustry.rating}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] text-gray-300">
+                        {q.data?.data.analysis.valuationAnalysis.vsIndustry.evidence}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] font-semibold text-white">Vs History</p>
+                        <span
+                          className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${valuationChipClass(
+                            q.data?.data.analysis.valuationAnalysis.vsHistory.rating ?? 'fair',
+                          )}`}
+                        >
+                          {q.data?.data.analysis.valuationAnalysis.vsHistory.rating}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] text-gray-300">
+                        {q.data?.data.analysis.valuationAnalysis.vsHistory.evidence}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Technical Analysis</h3>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Trend</p>
+                      <p className="mt-1 text-[12px] font-semibold text-white">
+                        {q.data?.data.analysis.technicalAnalysis.trend.status}
+                      </p>
+                      <p className="mt-1 text-[12px] text-gray-300">
+                        {q.data?.data.analysis.technicalAnalysis.trend.explanation}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Relative Strength</p>
+                      <p className="mt-1 text-[12px] font-semibold text-white">
+                        {q.data?.data.analysis.technicalAnalysis.relativeStrength.status}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Momentum RSI</p>
+                      <p className="mt-1 text-[12px] font-semibold text-white">
+                        {q.data?.data.analysis.technicalAnalysis.momentumRSI.status}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-[#0f131b] p-2.5">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Volume Accumulation</p>
+                      <p className="mt-1 text-[12px] font-semibold text-white">
+                        {q.data?.data.analysis.technicalAnalysis.volumeAccumulation.status}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Investment Thesis</h3>
                   <div className="space-y-3">
                     <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-200">Moat / Why own</p>
-                      <p className="mt-1 whitespace-pre-wrap text-[13px] text-gray-200">{q.data?.analysis.conclusion.moatAndWhyInvest}</p>
-                    </div>
-                    <div className="rounded-lg border border-blue-400/20 bg-blue-500/10 p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-blue-200">Future growth / triggers</p>
-                      <p className="mt-1 whitespace-pre-wrap text-[13px] text-gray-200">{q.data?.analysis.conclusion.futureGrowthProspects}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-200">Top reasons to own</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-[13px] text-gray-200">
+                        {q.data?.data.analysis.fundamentalStory.investmentThesis.top5ReasonsToOwn.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
                     </div>
                     <div className="rounded-lg border border-rose-400/20 bg-rose-500/10 p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-rose-200">Risks / why avoid</p>
-                      <p className="mt-1 whitespace-pre-wrap text-[13px] text-gray-200">{q.data?.analysis.conclusion.risksWhyAvoid}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-rose-200">Top risks</p>
+                      <ul className="mt-1 list-disc space-y-1 pl-4 text-[13px] text-gray-200">
+                        {q.data?.data.analysis.fundamentalStory.investmentThesis.top3Risks.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
                     </div>
+                    <div className="rounded-lg border border-blue-400/20 bg-blue-500/10 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-blue-200">Growth triggers</p>
+                      <p className="mt-1 whitespace-pre-wrap text-[13px] text-gray-200">
+                        {q.data?.data.analysis.fundamentalStory.investmentThesis.growthTriggers}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Competitive Positioning</h3>
+                  <div className="rounded-lg border border-white/10 bg-[#0f131b] p-3 text-[13px]">
+                    <p className="text-gray-200">
+                      {q.data?.data.analysis.fundamentalStory.competitivePositioning.moatAndMarketLeadership}
+                    </p>
+                    <p className="mt-2 text-gray-300">
+                      {q.data?.data.analysis.fundamentalStory.competitivePositioning.specialtiesAndDifferentiation}
+                    </p>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-purple-300">Cashflow & Visibility</h3>
+                  <div className="rounded-lg border border-white/10 bg-[#0f131b] p-3 text-[13px]">
+                    <p className="text-gray-200">
+                      OCF vs MCap (5Y): {q.data?.data.analysis.fundamentalStory.capitalAndCashflowAnalysis.ocfVsMarketCap5Yr}
+                    </p>
+                    <p className="mt-2 text-gray-300">
+                      Debt (4Y): {q.data?.data.analysis.fundamentalStory.capitalAndCashflowAnalysis.debtCondition4Yr}
+                    </p>
+                    <p className="mt-2 text-gray-300">
+                      Capex self-funding: {q.data?.data.analysis.fundamentalStory.capitalAndCashflowAnalysis.capexSelfFundingAbility}
+                    </p>
+                    <p className="mt-2 text-gray-300">
+                      Order-book visibility: {q.data?.data.analysis.fundamentalStory.futureVisibility.orderBookHealthVsMarketCap}
+                    </p>
                   </div>
                 </section>
               </div>

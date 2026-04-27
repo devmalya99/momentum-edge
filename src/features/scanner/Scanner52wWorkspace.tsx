@@ -23,17 +23,21 @@ import TechnicalChartScoreControl, {
 import ScanAnalysisSheet from '@/features/scanner/ScanAnalysisSheet';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingViewIndiaScreenerQuery';
-import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
+import {
+  quantamentalScoreTickerKey,
+  useAiStockOverviewScoresQuery,
+} from '@/features/ai/useAiStockOverviewScoresQuery';
 import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
-import { useRelativeTurnoverMap } from '@/features/relative-turnover/useRelativeTurnover';
 import TurnoverAccelerationBadge from '@/features/turnover-acceleration/TurnoverAccelerationBadge';
-import { useTurnoverAccelerationMap } from '@/features/turnover-acceleration/useTurnoverAcceleration';
+import { useStockMetricsBackgroundQueue } from '@/features/stock-metrics/useStockMetricsBackgroundQueue';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
 import { toBseTradingViewQuerySymbol } from '@/lib/tradingview-symbol';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useTradeStore } from '@/store/useTradeStore';
+import { useRelativeTurnoverStore } from '@/store/useRelativeTurnoverStore';
+import { useTurnoverAccelerationStore } from '@/store/useTurnoverAccelerationStore';
 import {
   Tooltip,
   TooltipContent,
@@ -143,18 +147,30 @@ export default function Scanner52wWorkspace() {
     return [];
   }, [isTvTab, tvRows]);
   const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(scannerListTickers);
-  const selectedTickerForMetrics = useMemo(() => {
-    if (!isTvTab || !querySymbol) return '';
-    const selected = tvRows.find((row) => row.tvSymbol === querySymbol);
-    return selected ? selected.ticker.trim().toUpperCase() : '';
-  }, [isTvTab, querySymbol, tvRows]);
-  const metricTickers = useMemo(
-    () => (selectedTickerForMetrics ? [selectedTickerForMetrics] : []),
-    [selectedTickerForMetrics],
-  );
-  const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(metricTickers);
-  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(metricTickers);
-
+  const { hasReadyMetrics, pendingCount, currentTaskSymbol } =
+    useStockMetricsBackgroundQueue(scannerListTickers);
+  const relativeStoreBySymbol = useRelativeTurnoverStore((s) => s.bySymbol);
+  const getValidRelativeMetric = useRelativeTurnoverStore((s) => s.getValidMetric);
+  const accelerationStoreBySymbol = useTurnoverAccelerationStore((s) => s.bySymbol);
+  const getValidAccelerationMetric = useTurnoverAccelerationStore((s) => s.getValidMetric);
+  const relativeTurnoverBySymbol = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getValidRelativeMetric>>();
+    for (const ticker of scannerListTickers) {
+      const key = ticker.trim().toUpperCase();
+      const metric = getValidRelativeMetric(key);
+      if (metric) map.set(key, metric);
+    }
+    return map;
+  }, [scannerListTickers, getValidRelativeMetric, relativeStoreBySymbol]);
+  const turnoverAccelerationBySymbol = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getValidAccelerationMetric>>();
+    for (const ticker of scannerListTickers) {
+      const key = ticker.trim().toUpperCase();
+      const metric = getValidAccelerationMetric(key);
+      if (metric) map.set(key, metric);
+    }
+    return map;
+  }, [scannerListTickers, getValidAccelerationMetric, accelerationStoreBySymbol]);
   const watchlist = useTradeStore((s) => s.watchlist);
   const authUser = useAuthStore((s) => s.user);
   const canEditStockTags = authUser?.role === 'admin';
@@ -496,6 +512,13 @@ export default function Scanner52wWorkspace() {
 
         {/* ── Action Buttons ── */}
         <div className="flex shrink-0 items-start gap-2 pt-1">
+          {currentTaskSymbol ? (
+            <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-400/30 bg-slate-500/10 px-3 py-2 text-[11px] font-medium text-slate-200">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Fetching <span className="font-bold">{currentTaskSymbol}</span>
+              {pendingCount > 0 ? <span className="text-slate-300/80">({pendingCount} left)</span> : null}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => setScanAnalysisOpen(true)}
@@ -643,6 +666,8 @@ export default function Scanner52wWorkspace() {
                 {filteredTvRows.map((row) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
                   const upperTicker = row.ticker.trim().toUpperCase();
+                  const quantamentalTickerKey = quantamentalScoreTickerKey(row.ticker);
+                  const readyForInteraction = hasReadyMetrics(upperTicker);
                   const ch =
                     isSelected &&
                     selectedTickerForQuote === upperTicker &&
@@ -652,18 +677,23 @@ export default function Scanner52wWorkspace() {
                       : row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
                   const bookmarked = isBookmarkedTicker(row.ticker);
-                  const aiScore = aiScoreByTicker.get(upperTicker);
+                  const aiScore = aiScoreByTicker.get(quantamentalTickerKey);
                   const tagIds = stockTagsByTicker.get(upperTicker) ?? [];
 
                   return (
                     <li key={row.tvSymbol} className={`border-b border-white/4 last:border-b-0 ${isSelected ? 'bg-white/5.5' : ''}`}>
-                      <div className={`flex items-stretch gap-0 transition-colors ${isSelected ? '' : 'hover:bg-white/3'}`}>
+                      <div
+                        className={`flex items-stretch gap-0 transition-colors ${
+                          readyForInteraction ? (isSelected ? '' : 'hover:bg-white/3') : 'opacity-55'
+                        }`}
+                      >
 
                         {/* Left accent bar */}
                         <div className={`w-[3px] shrink-0 rounded-full ${isSelected ? 'bg-cyan-400' : 'bg-transparent'}`} />
 
                         <button
                           type="button"
+                          disabled={!readyForInteraction}
                           onClick={() => onSelect(row.tvSymbol)}
                           className="min-w-0 flex-1 px-3 py-2.5 text-left"
                         >
@@ -675,7 +705,7 @@ export default function Scanner52wWorkspace() {
                               </span>
                               {aiScore ? (
                                 <span className="rounded border border-violet-400/25 bg-violet-500/12 px-1.5 py-px text-[9px] font-bold tracking-wide text-violet-300">
-                                  AI {aiScore.objectiveScore}%
+                                  AI {aiScore.quantamentalScore}%
                                 </span>
                               ) : null}
                             </div>
@@ -727,6 +757,7 @@ export default function Scanner52wWorkspace() {
                         {/* Bookmark */}
                         <button
                           type="button"
+                          disabled={!readyForInteraction}
                           onClick={() => {
                             void toggleWatchlist({
                               listId: DEFAULT_WATCHLIST_LIST_ID,
@@ -736,7 +767,7 @@ export default function Scanner52wWorkspace() {
                             });
                           }}
                           aria-label={bookmarked ? `Remove ${row.ticker} from watchlist` : `Add ${row.ticker} to watchlist`}
-                          className={`flex shrink-0 items-center px-2 transition-colors ${
+                          className={`flex shrink-0 items-center px-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                             bookmarked ? 'text-amber-400' : 'text-gray-600 hover:text-gray-300'
                           }`}
                         >

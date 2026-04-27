@@ -62,9 +62,19 @@
       "right": "EMA50"
     },
     {
+      "left": "EMA10",
+      "operation": "less",
+      "right": "close"
+    },
+    {
       "left": "volume_change",
       "operation": "greater",
       "right": 10
+    },
+    {
+      "left": "EMA50",
+      "operation": "egreater",
+      "right": "EMA200"
     },
     {
       "left": "is_primary",

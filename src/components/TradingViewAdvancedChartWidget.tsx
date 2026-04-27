@@ -92,12 +92,7 @@ function TradingViewAdvancedChartWidget({ symbol, className }: Props) {
       >
         <div className="tradingview-widget-container__widget min-h-0 flex-1 w-full" />
       </div>
-      <div className="tradingview-widget-copyright shrink-0 py-2 text-center text-[10px] text-gray-500">
-        <a href={chartHref} rel="noopener noreferrer nofollow" target="_blank" className="text-blue-400 hover:text-blue-300">
-          Open on TradingView
-        </a>
-        <span className="trademark"> by TradingView</span>
-      </div>
+    
     </div>
   );
 }

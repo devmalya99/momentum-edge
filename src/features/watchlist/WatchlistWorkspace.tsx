@@ -10,16 +10,20 @@ import TechnicalChartScoreControl, {
   compactStockTagLabel,
   stockTagBadgeClass,
 } from '@/components/TechnicalChartScoreControl';
-import { useAiStockOverviewScoresQuery } from '@/features/ai/useAiStockOverviewScoresQuery';
+import {
+  quantamentalScoreTickerKey,
+  useAiStockOverviewScoresQuery,
+} from '@/features/ai/useAiStockOverviewScoresQuery';
 import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
-import { useRelativeTurnoverMap } from '@/features/relative-turnover/useRelativeTurnover';
 import TurnoverAccelerationBadge from '@/features/turnover-acceleration/TurnoverAccelerationBadge';
-import { useTurnoverAccelerationMap } from '@/features/turnover-acceleration/useTurnoverAcceleration';
+import { useStockMetricsBackgroundQueue } from '@/features/stock-metrics/useStockMetricsBackgroundQueue';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
 import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
 import { useTradeStore } from '@/store/useTradeStore';
+import { useRelativeTurnoverStore } from '@/store/useRelativeTurnoverStore';
+import { useTurnoverAccelerationStore } from '@/store/useTurnoverAccelerationStore';
 import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
 import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
@@ -119,8 +123,29 @@ export default function WatchlistWorkspace() {
     () => itemsForList.filter((item) => item.kind === 'equity').map((item) => item.symbol),
     [itemsForList],
   );
-  const { metricBySymbol: relativeTurnoverBySymbol } = useRelativeTurnoverMap(technicalScoreTickers);
-  const { metricBySymbol: turnoverAccelerationBySymbol } = useTurnoverAccelerationMap(technicalScoreTickers);
+  const { hasReadyMetrics } = useStockMetricsBackgroundQueue(technicalScoreTickers);
+  const relativeStoreBySymbol = useRelativeTurnoverStore((s) => s.bySymbol);
+  const getValidRelativeMetric = useRelativeTurnoverStore((s) => s.getValidMetric);
+  const accelerationStoreBySymbol = useTurnoverAccelerationStore((s) => s.bySymbol);
+  const getValidAccelerationMetric = useTurnoverAccelerationStore((s) => s.getValidMetric);
+  const relativeTurnoverBySymbol = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getValidRelativeMetric>>();
+    for (const ticker of technicalScoreTickers) {
+      const key = ticker.trim().toUpperCase();
+      const metric = getValidRelativeMetric(key);
+      if (metric) map.set(key, metric);
+    }
+    return map;
+  }, [technicalScoreTickers, getValidRelativeMetric, relativeStoreBySymbol]);
+  const turnoverAccelerationBySymbol = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getValidAccelerationMetric>>();
+    for (const ticker of technicalScoreTickers) {
+      const key = ticker.trim().toUpperCase();
+      const metric = getValidAccelerationMetric(key);
+      if (metric) map.set(key, metric);
+    }
+    return map;
+  }, [technicalScoreTickers, getValidAccelerationMetric, accelerationStoreBySymbol]);
 
   const quoteQueries = useQueries({
     queries: symbolsForQuotes.map((symbol) => ({
@@ -687,6 +712,8 @@ export default function WatchlistWorkspace() {
                 {filteredSortedWatchlist.map((item) => {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
+                  const quantamentalTickerKey = quantamentalScoreTickerKey(item.symbol);
+                  const readyForInteraction = item.kind === 'index' ? true : hasReadyMetrics(symU);
                   const qi = symToQuoteIdx.get(symU);
                   const q = qi != null ? quoteQueries[qi] : undefined;
                   const pc = item.kind === 'equity' ? pChangeBySymbol.get(symU) : undefined;
@@ -713,22 +740,25 @@ export default function WatchlistWorkspace() {
                     <li key={item.id}>
                       <div
                         className={`flex items-start gap-2 rounded-2xl border px-3 py-3 transition-colors ${
-                          isSelected
+                          readyForInteraction
+                            ? isSelected
                             ? 'border-blue-500/40 bg-blue-500/10 text-white'
                             : 'border-transparent bg-transparent text-gray-300 hover:border-white/10 hover:bg-white/5'
+                            : 'border-transparent bg-transparent text-gray-400 opacity-55'
                         }`}
                       >
                         <button
                           type="button"
+                          disabled={!readyForInteraction}
                           onClick={() => onPickWatchlistRow(item.id)}
-                          className="min-w-0 flex-1 text-left"
+                          className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
                         >
                           <div className="flex items-baseline justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span className="font-bold tracking-tight">{item.symbol}</span>
-                              {item.kind === 'equity' && aiScoreByTicker.has(symU) ? (
+                              {item.kind === 'equity' && aiScoreByTicker.has(quantamentalTickerKey) ? (
                                 <span className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200">
-                                  AI {aiScoreByTicker.get(symU)?.objectiveScore}%
+                                  AI {aiScoreByTicker.get(quantamentalTickerKey)?.quantamentalScore}%
                                 </span>
                               ) : null}
                               {item.kind === 'equity' && (stockTagsByTicker.get(symU)?.length ?? 0) > 0 ? (
@@ -781,11 +811,12 @@ export default function WatchlistWorkspace() {
                         </button>
                         <button
                           type="button"
+                          disabled={!readyForInteraction}
                           onClick={() => {
                             void removeFromWatchlist(item.id);
                           }}
                           aria-label={`Remove ${item.symbol} from watchlist`}
-                          className="shrink-0 rounded-lg border border-white/10 p-1 text-gray-500 transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300"
+                          className="shrink-0 rounded-lg border border-white/10 p-1 text-gray-500 transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         </button>
