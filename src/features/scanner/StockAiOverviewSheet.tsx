@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Loader2, RefreshCcw, Sparkles } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -116,10 +116,13 @@ export default function StockAiOverviewSheet({
     gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ai', 'quantamental-scores'] });
-    },
   });
+
+  useEffect(() => {
+    if (!q.isSuccess) return;
+    void queryClient.invalidateQueries({ queryKey: ['ai', 'quantamental-scores'] });
+  }, [q.isSuccess, q.dataUpdatedAt, queryClient]);
+
   const quantamentalScore = useMemo(() => {
     if (!q.data) return null;
     const value = q.data.scores.total;
