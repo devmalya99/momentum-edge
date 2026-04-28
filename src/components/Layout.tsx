@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -55,18 +55,23 @@ export default function Layout({ children }: LayoutProps) {
 
   const wideContent =
     pathname === '/stock-charts' || pathname === '/52w-scanner' || pathname === '/watchlist';
+  const forceMinimalSidebar = useMemo(
+    () => pathname === '/52w-scanner' || pathname === '/watchlist',
+    [pathname],
+  );
+  const sidebarExpanded = !forceMinimalSidebar && isSidebarOpen;
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-gray-100 font-sans selection:bg-blue-500/30">
       <aside
         className={cn(
           'fixed top-0 left-0 z-40 h-screen transition-all duration-300 border-r border-white/5 bg-[#0f0f11]',
-          isSidebarOpen ? 'w-64' : 'w-20',
+          sidebarExpanded ? 'w-64' : 'w-20',
         )}
       >
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between h-16 px-6 border-b border-white/5">
-            {isSidebarOpen && (
+            {sidebarExpanded && (
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -78,9 +83,10 @@ export default function Layout({ children }: LayoutProps) {
             <button
               type="button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              disabled={forceMinimalSidebar}
               className="p-1.5 rounded-lg hover:bg-white/5 text-gray-400 transition-colors"
             >
-              {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+              {sidebarExpanded ? <X size={20} /> : <Menu size={20} />}
             </button>
           </div>
 
@@ -105,10 +111,10 @@ export default function Layout({ children }: LayoutProps) {
                       isActive ? 'scale-110' : 'group-hover:scale-110',
                     )}
                   />
-                  {isSidebarOpen && (
+                  {sidebarExpanded && (
                     <span className="ml-3 font-medium text-sm">{item.label}</span>
                   )}
-                  {isActive && isSidebarOpen && (
+                  {isActive && sidebarExpanded && (
                     <motion.div
                       layoutId="active-pill"
                       className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]"
@@ -123,13 +129,13 @@ export default function Layout({ children }: LayoutProps) {
             <div
               className={cn(
                 'flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/5',
-                !isSidebarOpen && 'justify-center',
+                !sidebarExpanded && 'justify-center',
               )}
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xs font-bold">
                 {user?.name?.slice(0, 2).toUpperCase() || 'ME'}
               </div>
-              {isSidebarOpen && (
+              {sidebarExpanded && (
                 <div className="flex flex-col overflow-hidden">
                   <span className="text-xs font-medium truncate">{user?.name || 'Trader'}</span>
                   <span className="text-[10px] text-gray-500 truncate">
@@ -142,7 +148,7 @@ export default function Layout({ children }: LayoutProps) {
               type="button"
               className={cn(
                 'mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-gray-300 transition hover:border-cyan-300/30 hover:text-cyan-200',
-                isSidebarOpen ? 'justify-start' : 'justify-center',
+                sidebarExpanded ? 'justify-start' : 'justify-center',
               )}
               onClick={async () => {
                 await fetch('/api/auth/logout', { method: 'POST' });
@@ -151,7 +157,7 @@ export default function Layout({ children }: LayoutProps) {
               }}
             >
               <LogOut size={16} />
-              {isSidebarOpen && <span>Logout</span>}
+              {sidebarExpanded && <span>Logout</span>}
             </button>
           </div>
         </div>
@@ -160,7 +166,7 @@ export default function Layout({ children }: LayoutProps) {
       <main
         className={cn(
           'transition-all duration-300 min-h-screen',
-          isSidebarOpen ? 'pl-64' : 'pl-20',
+          sidebarExpanded ? 'pl-64' : 'pl-20',
         )}
       >
         <div

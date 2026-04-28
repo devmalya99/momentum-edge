@@ -11,7 +11,7 @@ import {
   Globe,
   ShieldCheck,
   BarChart3,
-  Users,
+  CalendarDays,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
@@ -26,9 +26,11 @@ import {
 } from 'recharts';
 import { format, parseISO, subMonths } from 'date-fns';
 import TradingViewWidget from '@/components/TradingViewWidget';
-import TradingViewScreenerWidget from '@/components/TradingViewScreenerWidget';
 import LargeDealsPanel from '@/components/market/LargeDealsPanel';
 import { NSE_MONTHLY_LOOKBACK } from '@/lib/nse-month-keys';
+import type { Holiday } from '@/lib/nse-holiday-types';
+import InfoTooltip from '@/components/shared/InfoTooltip';
+import { Calendar } from '@/components/ui/calendar';
 
 interface ADData {
   timestamp: string;
@@ -55,14 +57,6 @@ type MonthlySeriesBlock = {
   yearKey: string;
   data: NseMonthlyRow[];
   error?: string;
-};
-
-type FiiRatioRow = {
-  date: string;
-  indexLong: number;
-  indexShort: number;
-  fiiLong: number;
-  fiiShort: number;
 };
 
 type ChartPoint = {
@@ -157,6 +151,34 @@ function formatDateIst(d: Date): string {
   }).format(d);
 }
 
+function parseHolidayDate(value: string): Date | null {
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+  const alt = parseISO(value);
+  if (!Number.isNaN(alt.getTime())) return alt;
+  return null;
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function daysBetween(a: Date, b: Date): number {
+  const ms = startOfDay(b).getTime() - startOfDay(a).getTime();
+  return Math.round(ms / 86400000);
+}
+
+function getLastWeekdayOfMonth(year: number, monthIndex: number, weekday: number): Date {
+  const d = new Date(year, monthIndex + 1, 0);
+  while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+  return d;
+}
+
+function isLastWeekOfMonth(d: Date): boolean {
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  return d.getDate() + 7 > last;
+}
+
 const SMOOTH_PERIOD_MIN = 3;
 const SMOOTH_PERIOD_MAX = 10;
 const SMOOTH_PERIOD_OPTIONS = Array.from(
@@ -248,17 +270,16 @@ export default function MarketView() {
   /** Rolling window (server default / env) vs one calendar year (Jan–Dec). */
   const [chartYear, setChartYear] = useState<number | 'rolling'>('rolling');
 
-  const [fiiRatioRows, setFiiRatioRows] = useState<FiiRatioRow[]>([]);
-  const [fiiLoading, setFiiLoading] = useState(true);
-  const [fiiError, setFiiError] = useState<string | null>(null);
-
   const [neonRows, setNeonRows] = useState<NeonDailyRow[]>([]);
   const [neonLoading, setNeonLoading] = useState(false);
   const [neonError, setNeonError] = useState<string | null>(null);
-  /** Full 0–100% oscillator scale vs zoom-to-data for small moves. */
-  const [fiiYAxisFullRange, setFiiYAxisFullRange] = useState(true);
 
   const [largeDealsReloadToken, setLargeDealsReloadToken] = useState(0);
+  const [tradingHolidays, setTradingHolidays] = useState<Holiday[]>([]);
+  const [holidaysLoading, setHolidaysLoading] = useState(true);
+  const [holidaysError, setHolidaysError] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | undefined>(new Date());
 
   const chartYearOptions = useMemo(() => {
     const cy = new Date().getFullYear();
@@ -328,28 +349,6 @@ export default function MarketView() {
     }
   }, [chartYear]);
 
-  const loadFiiRatio = useCallback(async () => {
-    setFiiLoading(true);
-    setFiiError(null);
-    try {
-      const response = await fetch('/api/fii-ratio', { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) {
-        const msg =
-          typeof payload?.error === 'string' ? payload.error : 'Failed to load FII ratio data.';
-        throw new Error(msg);
-      }
-      setFiiRatioRows(Array.isArray(payload.data) ? payload.data : []);
-    } catch (err: unknown) {
-      console.error(err);
-      const message = err instanceof Error ? err.message : 'Request failed.';
-      setFiiError(message);
-      setFiiRatioRows([]);
-    } finally {
-      setFiiLoading(false);
-    }
-  }, []);
-
   const loadNeonDaily = useCallback(async () => {
     setNeonLoading(true);
     setNeonError(null);
@@ -379,13 +378,41 @@ export default function MarketView() {
     }
   }, [chartYear]);
 
+  const loadTradingHolidays = useCallback(async () => {
+    setHolidaysLoading(true);
+    setHolidaysError(null);
+    try {
+      const response = await fetch('/api/nse/holidays?type=trading', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) {
+        const msg =
+          typeof payload?.error === 'string' ? payload.error : 'Failed to load trading holidays.';
+        throw new Error(msg);
+      }
+      const rows = Array.isArray(payload?.holidays) ? (payload.holidays as Holiday[]) : [];
+      const sorted = [...rows].sort((a, b) => {
+        const da = parseHolidayDate(a.tradingDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const db = parseHolidayDate(b.tradingDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return da - db;
+      });
+      setTradingHolidays(sorted);
+    } catch (err: unknown) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : 'Request failed.';
+      setHolidaysError(message);
+      setTradingHolidays([]);
+    } finally {
+      setHolidaysLoading(false);
+    }
+  }, []);
+
   const refreshAll = useCallback(() => {
     void loadLive();
     void loadHistory();
-    void loadFiiRatio();
     void loadNeonDaily();
+    void loadTradingHolidays();
     setLargeDealsReloadToken((t) => t + 1);
-  }, [loadLive, loadHistory, loadFiiRatio, loadNeonDaily]);
+  }, [loadLive, loadHistory, loadNeonDaily, loadTradingHolidays]);
 
   useEffect(() => {
     void loadLive();
@@ -396,12 +423,12 @@ export default function MarketView() {
   }, [loadHistory]);
 
   useEffect(() => {
-    void loadFiiRatio();
-  }, [loadFiiRatio]);
-
-  useEffect(() => {
     void loadNeonDaily();
   }, [loadNeonDaily]);
+
+  useEffect(() => {
+    void loadTradingHolidays();
+  }, [loadTradingHolidays]);
 
   const neonByDate = useMemo(() => {
     const m = new Map<string, number>();
@@ -432,153 +459,6 @@ export default function MarketView() {
     }
     return max;
   }, [historyMonths]);
-
-  const fiiChartData = useMemo(() => {
-    return [...fiiRatioRows].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-    );
-  }, [fiiRatioRows]);
-
-  /** FII long %: Y-axis fits data + padding so the line uses chart height (clamped to 0–100). */
-  const fiiLongYDomain = useMemo((): [number, number] => {
-    const vals = fiiChartData
-      .map((d) => d.fiiLong)
-      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-    if (vals.length === 0) return [0, 100];
-    const dataMin = Math.min(...vals);
-    const dataMax = Math.max(...vals);
-    const span = Math.max(dataMax - dataMin, 0.5);
-    const pad = Math.max(2, span * 0.14, 3);
-    let low = Math.max(0, dataMin - pad * 0.4);
-    let high = Math.min(100, dataMax + pad);
-    if (high <= low) return [0, Math.min(100, dataMax + 5)];
-    if (high - low < 5) {
-      const mid = (low + high) / 2;
-      low = Math.max(0, mid - 2.5);
-      high = Math.min(100, mid + 2.5);
-    }
-    return [low, high];
-  }, [fiiChartData]);
-
-  const fiiLongShowsNeutral50 =
-    fiiLongYDomain[0] <= 50 && fiiLongYDomain[1] >= 50;
-
-  /** Long % change per step over the last up-to-10 points (proxy for recent direction). */
-  const fiiRecentSlopeInfo = useMemo(() => {
-    const window = 10;
-    if (fiiChartData.length < 2) {
-      return { slope: null as number | null, pointCount: 0, stepCount: 0 };
-    }
-    const slice = fiiChartData.slice(-Math.min(window, fiiChartData.length));
-    if (slice.length < 2) {
-      return { slope: null as number | null, pointCount: slice.length, stepCount: 0 };
-    }
-    const first = slice[0].fiiLong;
-    const last = slice[slice.length - 1].fiiLong;
-    const stepCount = slice.length - 1;
-    return {
-      slope: (last - first) / stepCount,
-      pointCount: slice.length,
-      stepCount,
-    };
-  }, [fiiChartData]);
-
-  const fiiLatestRow = useMemo(
-    () => (fiiChartData.length > 0 ? fiiChartData[fiiChartData.length - 1] : null),
-    [fiiChartData],
-  );
-
-  const fiiLiveGuidance = useMemo(() => {
-    if (!fiiLatestRow || data == null) return null;
-    const fl = fiiLatestRow.fiiLong;
-    if (!Number.isFinite(fl)) return null;
-    const d = data.advance?.count?.Declines ?? 0;
-    const a = data.advance?.count?.Advances ?? 0;
-    if (a === 0 && d === 0) return null;
-    const adRatio = d > 0 ? a / d : a > 0 ? 99 : 0;
-    const slope = fiiRecentSlopeInfo.slope;
-    const risingFii = slope !== null && slope > 0.12;
-    const fallingFii = slope !== null && slope < -0.12;
-
-    const box = (
-      title: string,
-      detail: string,
-      tone: 'amber' | 'emerald' | 'rose' | 'violet' | 'slate',
-    ) => {
-      const ring = {
-        amber: 'border-amber-500/25 bg-amber-500/[0.06]',
-        emerald: 'border-emerald-500/25 bg-emerald-500/[0.06]',
-        rose: 'border-rose-500/25 bg-rose-500/[0.06]',
-        violet: 'border-violet-500/25 bg-violet-500/[0.06]',
-        slate: 'border-white/10 bg-white/[0.03]',
-      }[tone];
-      const titleColor = {
-        amber: 'text-amber-200/95',
-        emerald: 'text-emerald-200/95',
-        rose: 'text-rose-200/95',
-        violet: 'text-violet-200/95',
-        slate: 'text-gray-300',
-      }[tone];
-      return { title, detail, ring, titleColor };
-    };
-
-    if (risingFii && adRatio < 1) {
-      return box(
-        'Possible “trap” backdrop',
-        'FII long % has been rising recently, but live A/D is below 1.0. That mix often means index futures can lean long while the wider market struggles—avoid treating strength as unanimous participation.',
-        'amber',
-      );
-    }
-    if (fl < 25 && adRatio >= 1) {
-      return box(
-        'Capitulation-style alignment',
-        'FII long % is very low (heavy short skew in futures), while breadth is at least neutral-to-strong today. Historically this is where short-covering or relief rallies show up more often—but confirm with price and trend, not this alone.',
-        'emerald',
-      );
-    }
-    if (fl > 50 && adRatio > 1) {
-      return box(
-        'Aligned risk-on context',
-        'FII long % is above half and breadth is positive. When both stay aligned, fighting upside in futures can be painful—still use your rules; this is background, not an entry trigger.',
-        'violet',
-      );
-    }
-    if (fl >= 70) {
-      return box(
-        'Crowded long zone',
-        'Very high FII long % means a lot of upside conviction is already in the book—useful as a contrarian heads-up when the series rolls over from a peak. Pair with breadth and price.',
-        'rose',
-      );
-    }
-    if (fl <= 20) {
-      return box(
-        'Heavy short skew',
-        'Very low FII long % usually means aggressive short positioning; squeezes often start when shorts have less left to sell. Watch for a turn in this line together with breadth improving.',
-        'emerald',
-      );
-    }
-    if (fl >= 40 && fl <= 60) {
-      if (risingFii) {
-        return box(
-          'Middle band: FII tide improving',
-          'Between ~40–60%, the slope matters: rising FII long % suggests institutions are leaning less bearish in index futures. Do not fight that drift unless breadth disagrees.',
-          'slate',
-        );
-      }
-      if (fallingFii) {
-        return box(
-          'Middle band: FII tide weakening',
-          'FII long % is falling through the middle of the range—often momentum toward more defensive futures positioning. Respect it unless breadth is strongly supportive.',
-          'slate',
-        );
-      }
-    }
-    return box(
-      'No single headline',
-      'FII positioning is one input. Compare this series with the A/D trend above and live breadth; extremes and divergences matter more than any one print.',
-      'slate',
-    );
-  }, [fiiLatestRow, fiiRecentSlopeInfo, data]);
 
   type ChartBaseRow = Omit<
     ChartPoint,
@@ -703,6 +583,97 @@ export default function MarketView() {
     return historyMonths.map((m) => m.yearKey).join(' · ');
   }, [chartYear, historyMonths]);
 
+  const nearestTradingHoliday = useMemo(() => {
+    const now = new Date();
+    const upcoming = [...tradingHolidays]
+      .map((h) => {
+        const d = parseHolidayDate(h.tradingDate);
+        return d ? { holiday: h, ts: d.getTime() } : null;
+      })
+      .filter((x): x is { holiday: Holiday; ts: number } => x != null && x.ts >= now.getTime())
+      .sort((a, b) => a.ts - b.ts);
+    return upcoming[0]?.holiday ?? null;
+  }, [tradingHolidays]);
+
+  const holidayByDateKey = useMemo(() => {
+    const map = new Map<string, Holiday>();
+    for (const holiday of tradingHolidays) {
+      const d = parseHolidayDate(holiday.tradingDate);
+      if (!d) continue;
+      map.set(format(d, 'yyyy-MM-dd'), holiday);
+    }
+    return map;
+  }, [tradingHolidays]);
+
+  const selectedCalendarHoliday = useMemo(() => {
+    if (!selectedCalendarDate) return null;
+    return holidayByDateKey.get(format(selectedCalendarDate, 'yyyy-MM-dd')) ?? null;
+  }, [selectedCalendarDate, holidayByDateKey]);
+
+  const expiryWatch = useMemo(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+    const candidates = [
+      getLastWeekdayOfMonth(y, m, 2), // Tuesday
+      getLastWeekdayOfMonth(y, m, 4), // Thursday
+      getLastWeekdayOfMonth(y, m + 1, 2),
+      getLastWeekdayOfMonth(y, m + 1, 4),
+    ]
+      .filter((d) => startOfDay(d).getTime() >= startOfDay(today).getTime())
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    const next = candidates[0] ?? null;
+    if (!next) {
+      return {
+        dateLabel: 'N/A',
+        seriesLabel: 'Monthly expiry',
+        daysLeft: null as number | null,
+        daysToLastFriday: null as number | null,
+        inRedWeek: false,
+        level: 'normal' as 'normal' | 'caution' | 'warn' | 'critical',
+        message: 'Could not calculate next monthly expiry.',
+      };
+    }
+
+    const daysLeft = daysBetween(today, next);
+    const isTuesdaySeries = next.getDay() === 2;
+    const seriesLabel = isTuesdaySeries ? 'Month-end Tuesday expiry' : 'Month-end Thursday expiry';
+    const lastFriday = getLastWeekdayOfMonth(y, m, 5);
+    const dayOfMonth = today.getDate();
+    const inRedWeek = dayOfMonth >= 21 && dayOfMonth <= 31;
+    const daysToLastFriday = daysBetween(today, lastFriday);
+
+    const isMondayBeforeExpiry = today.getDay() === 1 && daysLeft <= 3;
+    const isLastFridayBeforeExpiry =
+      today.getDay() === 5 && isLastWeekOfMonth(today) && daysLeft <= 6;
+
+    let level: 'normal' | 'caution' | 'warn' | 'critical' = 'normal';
+    let message = 'Standard positioning environment.';
+
+    if (daysLeft <= 1) {
+      level = 'critical';
+      message = 'Expiry is imminent. Volatility and sharp intraday whipsaws are likely.';
+    } else if (inRedWeek) {
+      level = 'warn';
+      message =
+        'Inside Red Week (21st-31st). Stay cautious and keep positions light due to expiry volatility.';
+    } else if (daysLeft <= 10 || isMondayBeforeExpiry || isLastFridayBeforeExpiry) {
+      level = 'caution';
+      message = 'Outside Red Week. Volatility can build as expiry gets closer; size positions accordingly.';
+    }
+
+    return {
+      dateLabel: format(next, 'dd MMM yyyy'),
+      seriesLabel,
+      daysLeft,
+      daysToLastFriday,
+      inRedWeek,
+      level,
+      message,
+    };
+  }, []);
+
   const advances = data?.advance?.count?.Advances ?? 0;
   const declines = data?.advance?.count?.Declines ?? 0;
   const ratio = declines > 0 ? advances / declines : 0;
@@ -751,7 +722,7 @@ export default function MarketView() {
   };
 
   const busy = liveLoading || historyLoading;
-  const refreshSpinning = busy || fiiLoading || neonLoading;
+  const refreshSpinning = busy || neonLoading;
 
   /** Prior-month reference line (teal); primary A/D already blends NSE + Neon in `ratioPlot`. */
   const showPriorMonthNeonLine = neonByDate.size > 0;
@@ -791,6 +762,179 @@ export default function MarketView() {
           </div>
         </div>
       )}
+
+      <div className="p-6 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+            <CalendarDays className="text-blue-400" size={16} />
+            NSE Trading Holidays
+          </h2>
+          <span className="text-[11px] text-gray-500">
+            {tradingHolidays.length > 0 ? `${tradingHolidays.length} holidays loaded` : 'No data'}
+          </span>
+        </div>
+        {holidaysLoading ? (
+          <div className="text-sm text-gray-500">Loading holiday calendar…</div>
+        ) : holidaysError ? (
+          <div className="text-sm text-amber-300">
+            Could not load trading holidays: {holidaysError}
+          </div>
+        ) : nearestTradingHoliday ? (
+          <div className="rounded-2xl border border-blue-400/40 bg-blue-500/10 px-4 py-3">
+            <p className="text-sm font-semibold text-gray-200">{nearestTradingHoliday.description}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {nearestTradingHoliday.tradingDate} ({nearestTradingHoliday.weekDay}){' '}
+              <span className="ml-1 rounded-full border border-blue-400/35 bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-200">
+                Nearest
+              </span>
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1">
+              <span className="inline-flex items-center gap-1.5">
+                Session: {nearestTradingHoliday.morning_session || 'Closed'} /{' '}
+                {nearestTradingHoliday.evening_session || 'Closed'}
+                <InfoTooltip message="Morning and evening are exchange session windows. Closed / Open means the morning session is closed while the evening session remains open for applicable segments." />
+              </span>
+            </p>
+          </div>
+        ) : (
+          <div className="text-sm text-gray-500">No trading holidays found.</div>
+        )}
+      </div>
+
+      <div className="p-6 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+            <CalendarDays className="text-blue-400" size={16} />
+            Monthly Volatility Calendar
+          </h2>
+        </div>
+        <p className="text-xs text-gray-500">
+          Today is highlighted in green, Red Week (21st-31st) is marked in red, and NSE trading
+          holidays are outlined in blue.
+        </p>
+        <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] p-3 sm:p-4 flex justify-center">
+          <Calendar
+            mode="single"
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            selected={selectedCalendarDate}
+            onSelect={setSelectedCalendarDate}
+            className="w-auto bg-transparent! p-0 text-gray-200"
+            classNames={{
+              root: 'w-auto',
+              months: 'justify-center',
+              month: 'w-auto',
+              table: 'w-auto',
+              month_caption: 'text-gray-200',
+              weekday: 'text-gray-500',
+            }}
+            modifiers={{
+              redWeek: (date) =>
+                date.getFullYear() === calendarMonth.getFullYear() &&
+                date.getMonth() === calendarMonth.getMonth() &&
+                date.getDate() >= 21,
+              nseHoliday: (date) => holidayByDateKey.has(format(date, 'yyyy-MM-dd')),
+              todayExact: (date) => format(date, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd'),
+            }}
+            modifiersClassNames={{
+              redWeek:
+                'bg-red-500/20 text-red-200 hover:bg-red-500/30 aria-selected:bg-red-500/30 aria-selected:text-red-100',
+              nseHoliday: 'ring-1 ring-blue-400/70 ring-inset',
+              todayExact:
+                'bg-emerald-500/25 text-emerald-100 font-bold hover:bg-emerald-500/35 aria-selected:bg-emerald-500/35',
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-emerald-400/80" />
+            Today
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-red-400/80" />
+            Red Week (21-31)
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full border border-blue-400/80" />
+            NSE Holiday
+          </span>
+        </div>
+        {selectedCalendarDate ? (
+          <div className="text-xs text-gray-400">
+            Selected: <span className="text-gray-200">{format(selectedCalendarDate, 'dd MMM yyyy')}</span>
+            {selectedCalendarHoliday ? (
+              <span className="text-blue-200">
+                {' '}
+                · Holiday: {selectedCalendarHoliday.description} (
+                {selectedCalendarHoliday.morning_session || 'Closed'} /{' '}
+                {selectedCalendarHoliday.evening_session || 'Closed'})
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div
+        className={`p-6 rounded-3xl border space-y-4 ${
+          expiryWatch.inRedWeek
+            ? 'bg-red-500/8 border-red-400/25'
+            : 'bg-emerald-500/8 border-emerald-400/25'
+        }`}
+      >
+        <h2
+          className={`text-sm font-bold uppercase tracking-widest ${
+            expiryWatch.inRedWeek ? 'text-red-200/90' : 'text-emerald-200/90'
+          }`}
+        >
+          Monthly Expiry Volatility Watch
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Next expiry</p>
+            <p className="text-sm font-semibold text-gray-200 mt-1">{expiryWatch.dateLabel}</p>
+            <p className="text-[11px] text-gray-500 mt-1">{expiryWatch.seriesLabel}</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Timeline</p>
+            <p className="text-sm font-semibold text-gray-200 mt-1">
+              {expiryWatch.daysLeft == null ? 'N/A' : `${expiryWatch.daysLeft} day(s) left`}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1">
+              {expiryWatch.daysToLastFriday == null
+                ? '10-day pre-expiry risk window'
+                : `${expiryWatch.daysToLastFriday} day(s) to month last Friday`}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Risk signal</p>
+            <p
+              className={`text-sm font-semibold mt-1 ${
+                expiryWatch.level === 'critical'
+                  ? 'text-red-300'
+                  : expiryWatch.level === 'warn'
+                    ? 'text-amber-300'
+                    : expiryWatch.level === 'caution'
+                      ? 'text-yellow-300'
+                      : 'text-emerald-300'
+              }`}
+            >
+              {expiryWatch.level === 'critical'
+                ? 'High volatility likely'
+                : expiryWatch.level === 'warn'
+                  ? 'Stay light'
+                  : expiryWatch.level === 'caution'
+                    ? 'Volatility building'
+                    : 'Normal'}
+            </p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {expiryWatch.inRedWeek
+                ? 'Inside Red Week (21st-31st)'
+                : 'Outside Red Week (21st-31st)'}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1">{expiryWatch.message}</p>
+          </div>
+        </div>
+      </div>
 
       {liveLoading ? (
         <div className="h-64 flex flex-col items-center justify-center gap-4 bg-[#161618] rounded-3xl border border-white/5">
@@ -904,298 +1048,6 @@ export default function MarketView() {
       <LargeDealsPanel reloadToken={largeDealsReloadToken} />
 
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2 flex-wrap">
-              <Users className="text-violet-400" size={16} aria-hidden />
-              FII long–short mix (index futures)
-              <span className="relative inline-flex group">
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-gray-500 outline-none transition-colors hover:text-violet-400 focus-visible:ring-2 focus-visible:ring-violet-500/50"
-                  aria-label="How to interpret this chart"
-                >
-                  <Info size={16} aria-hidden />
-                </button>
-                <div
-                  role="tooltip"
-                  className="invisible absolute left-0 top-full z-50 mt-2 w-[min(24rem,calc(100vw-2.5rem))] max-h-[min(70vh,28rem)] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f0f11] p-4 text-left shadow-2xl shadow-black/50 opacity-0 transition-all duration-200 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-                >
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-violet-300/90 mb-2">
-                    How to read this chart
-                  </p>
-                  <ul className="space-y-2.5 text-xs text-gray-400 leading-relaxed list-disc pl-4 marker:text-violet-500/70">
-                    <li>
-                      <span className="text-gray-300 font-medium">0–100% oscillator</span> — Long %
-                      is the share of reported FII index-futures positioning on the long side (long + short
-                      ≈ 100%). Think of it as positioning pressure, not a price forecast.
-                    </li>
-                    <li>
-                      <span className="text-gray-300 font-medium">Extremes (contrarian)</span> — Very
-                      high long % (often 70%+) can mean crowded upside; very low (often ~20% or below)
-                      can mean crowded shorts and eventual cover rallies. The{' '}
-                      <span className="text-gray-300">rollover</span> off a peak or trough matters as
-                      much as the level.
-                    </li>
-                    <li>
-                      <span className="text-gray-300 font-medium">Middle band (~40–60%)</span> — Treat
-                      the <span className="text-gray-300">slope</span> as momentum: rising long % → less
-                      bearish / more constructive in futures; falling → the opposite.
-                    </li>
-                    <li>
-                      Always pair with <span className="text-gray-300">NSE breadth</span> (this page’s
-                      A/D ratio). The card below the chart summarizes common combinations; it is
-                      educational context, not financial advice.
-                    </li>
-                  </ul>
-                </div>
-              </span>
-            </h2>
-            <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-              Source: <span className="text-gray-400">api.vrdnation.org</span> (proxied). Daily series —
-              use with live and historical breadth, not as a standalone trigger.
-            </p>
-          </div>
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 self-start rounded-xl border border-white/10 bg-[#0a0a0b] px-3 py-2 text-xs text-gray-400">
-            <input
-              type="checkbox"
-              className="rounded border-white/20 bg-[#161618] text-violet-500 focus:ring-violet-500/40"
-              checked={fiiYAxisFullRange}
-              onChange={(e) => setFiiYAxisFullRange(e.target.checked)}
-            />
-            <span className="font-semibold text-gray-300 whitespace-nowrap">0–100% scale</span>
-          </label>
-        </div>
-
-        <div className="rounded-2xl border border-violet-500/25 bg-violet-500/[0.06] p-4 sm:p-5 space-y-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-violet-200/90 flex items-center gap-2">
-            <Info className="shrink-0 text-violet-400" size={15} aria-hidden />
-            FII long % + NSE breadth (how to combine)
-          </h3>
-          <p className="text-xs text-gray-400 leading-relaxed">
-            Breadth is <span className="text-gray-300">equal-weight participation</span>; FII index
-            futures are <span className="text-gray-300">concentrated institutional</span> positioning.
-            The useful reads show up when the two disagree or align.
-          </p>
-          <div className="overflow-x-auto rounded-xl border border-white/10">
-            <table className="w-full min-w-[280px] text-left text-[11px] text-gray-400">
-              <thead>
-                <tr className="border-b border-white/10 bg-[#0a0a0b] text-[10px] font-bold uppercase tracking-wide text-gray-500">
-                  <th className="px-3 py-2 font-bold">Setup</th>
-                  <th className="px-3 py-2 font-bold">FII long %</th>
-                  <th className="px-3 py-2 font-bold">Breadth (A/D)</th>
-                  <th className="px-3 py-2 font-bold">Typical read</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                <tr className="bg-[#0a0a0b]/40">
-                  <td className="px-3 py-2.5 font-semibold text-gray-300">Trap risk</td>
-                  <td className="px-3 py-2.5">Rising (adding longs)</td>
-                  <td className="px-3 py-2.5">Weak / &lt; 1.0</td>
-                  <td className="px-3 py-2.5 text-amber-200/90">
-                    Index can be propped while the broad market fades—be selective.
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2.5 font-semibold text-gray-300">Capitulation / cover</td>
-                  <td className="px-3 py-2.5">Very low (~&lt; 25%)</td>
-                  <td className="px-3 py-2.5">Improving / ≥ 1.0</td>
-                  <td className="px-3 py-2.5 text-emerald-200/90">
-                    Max-short institutions meet stabilizing breadth—watch for squeeze dynamics.
-                  </td>
-                </tr>
-                <tr className="bg-[#0a0a0b]/40">
-                  <td className="px-3 py-2.5 font-semibold text-gray-300">Aligned bull backdrop</td>
-                  <td className="px-3 py-2.5">Above ~50%</td>
-                  <td className="px-3 py-2.5">Strong / &gt; 1.0</td>
-                  <td className="px-3 py-2.5 text-violet-200/90">
-                    Futures and breadth agree—trend continuation more plausible (still not a buy signal
-                    by itself).
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[10px] text-gray-500 leading-relaxed border-t border-white/5 pt-3">
-            Thresholds are rules-of-thumb from how positioning and breadth interact; your process and
-            risk limits still come first.
-          </p>
-        </div>
-
-        {fiiError && (
-          <div className="flex items-start gap-2 text-sm text-amber-400/90 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-            <span>{fiiError}</span>
-          </div>
-        )}
-
-        {fiiLoading && fiiChartData.length === 0 ? (
-          <div className="h-72 flex flex-col items-center justify-center gap-3 border border-dashed border-white/10 rounded-2xl">
-            <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-              Loading FII ratio…
-            </span>
-          </div>
-        ) : fiiChartData.length === 0 ? (
-          <div className="h-48 flex items-center justify-center text-sm text-gray-500 border border-dashed border-white/10 rounded-2xl">
-            No FII ratio rows returned.
-          </div>
-        ) : (
-          <div className="space-y-3 pt-2">
-            {fiiLatestRow ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between rounded-2xl border border-white/10 bg-[#0a0a0b] px-4 py-3">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
-                    Latest data point
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <span className="text-2xl font-black tabular-nums text-gray-100">
-                      {Number.isFinite(fiiLatestRow.fiiLong) ? `${fiiLatestRow.fiiLong.toFixed(2)}%` : '—'}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      FII long ·{' '}
-                      {(() => {
-                        try {
-                          return format(parseISO(fiiLatestRow.date), 'PP');
-                        } catch {
-                          return fiiLatestRow.date;
-                        }
-                      })()}
-                    </span>
-                  </div>
-                  {fiiRecentSlopeInfo.slope != null && fiiRecentSlopeInfo.stepCount > 0 ? (
-                    <p className="mt-1 text-[10px] text-gray-600">
-                      Last {fiiRecentSlopeInfo.pointCount} prints ({fiiRecentSlopeInfo.stepCount} step
-                      {fiiRecentSlopeInfo.stepCount === 1 ? '' : 's'}): slope{' '}
-                      <span className="tabular-nums text-gray-400">
-                        {fiiRecentSlopeInfo.slope >= 0 ? '+' : ''}
-                        {fiiRecentSlopeInfo.slope.toFixed(3)} pts/step
-                      </span>
-                    </p>
-                  ) : null}
-                </div>
-                {fiiLiveGuidance ? (
-                  <div
-                    className={`max-w-xl rounded-xl border px-3 py-2.5 sm:max-w-md ${fiiLiveGuidance.ring}`}
-                  >
-                    <div className={`text-[11px] font-bold ${fiiLiveGuidance.titleColor}`}>
-                      {fiiLiveGuidance.title}
-                    </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
-                      {fiiLiveGuidance.detail}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="max-w-sm text-[11px] text-gray-500">
-                    Load live NSE breadth above to see a same-day combination read with this print.
-                  </p>
-                )}
-              </div>
-            ) : null}
-
-            <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
-                FII long %
-              </h3>
-              <p className="text-[10px] text-gray-600 mt-0.5">
-                {fiiYAxisFullRange ? (
-                  <>
-                    Full <span className="text-gray-400">0–100%</span> scale for oscillator context;
-                    dashed guides at <span className="text-gray-400">20%</span>,{' '}
-                    <span className="text-gray-400">50%</span>, <span className="text-gray-400">80%</span>{' '}
-                    (common watch levels).
-                  </>
-                ) : (
-                  <>
-                    Y-axis zoomed to the loaded series (plus padding) so small changes fill the chart;
-                    toggle <span className="text-gray-400">0–100% scale</span> for extreme readings.
-                  </>
-                )}
-              </p>
-            </div>
-            <div className="h-[280px] w-full min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={fiiChartData}
-                  margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10, fill: '#9ca3af' }}
-                    tickFormatter={(d) => {
-                      try {
-                        return format(parseISO(String(d)), 'MMM yy');
-                      } catch {
-                        return String(d);
-                      }
-                    }}
-                    minTickGap={28}
-                  />
-                  <YAxis
-                    domain={fiiYAxisFullRange ? [0, 100] : fiiLongYDomain}
-                    width={44}
-                    tick={{ fontSize: 10, fill: '#9ca3af' }}
-                    tickFormatter={(v) => `${v}%`}
-                    allowDataOverflow={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: '#141416',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: 12,
-                      fontSize: 12,
-                    }}
-                    labelFormatter={(d) => {
-                      try {
-                        return format(parseISO(String(d)), 'PP');
-                      } catch {
-                        return String(d);
-                      }
-                    }}
-                    formatter={(value) => {
-                      if (value == null) return ['—', 'FII long'];
-                      const n = typeof value === 'number' ? value : Number(value);
-                      if (Number.isNaN(n)) return ['—', 'FII long'];
-                      return [`${n.toFixed(2)}%`, 'FII long'];
-                    }}
-                  />
-                  {fiiYAxisFullRange ? (
-                    <>
-                      <ReferenceLine
-                        y={20}
-                        stroke="#78716c"
-                        strokeDasharray="4 4"
-                        strokeOpacity={0.65}
-                      />
-                      <ReferenceLine y={50} stroke="#6b7280" strokeDasharray="4 4" />
-                      <ReferenceLine
-                        y={80}
-                        stroke="#78716c"
-                        strokeDasharray="4 4"
-                        strokeOpacity={0.65}
-                      />
-                    </>
-                  ) : fiiLongShowsNeutral50 ? (
-                    <ReferenceLine y={50} stroke="#6b7280" strokeDasharray="4 4" />
-                  ) : null}
-                  <Line
-                    type="monotone"
-                    dataKey="fiiLong"
-                    name="FII long %"
-                    stroke="#22c55e"
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
           <div>
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
@@ -1239,7 +1091,7 @@ export default function MarketView() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/[0.06] p-4 sm:p-5 space-y-3">
+        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/6 p-4 sm:p-5 space-y-3">
           <h3 className="text-[11px] font-bold uppercase tracking-widest text-blue-300/95 flex items-center gap-2">
             <Info className="shrink-0 text-blue-400" size={15} aria-hidden />
             Market breadth vs. the index
@@ -1302,7 +1154,7 @@ export default function MarketView() {
                   setChartYear(v === 'rolling' ? 'rolling' : Number(v));
                 }}
                 aria-label="Calendar year or rolling window for A/D history"
-                className="cursor-pointer rounded-xl border border-white/10 bg-[#0a0a0b] px-3 py-2.5 text-sm font-semibold tabular-nums text-gray-200 outline-none transition-colors hover:border-white/20 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 min-w-[10rem]"
+                className="cursor-pointer rounded-xl border border-white/10 bg-[#0a0a0b] px-3 py-2.5 text-sm font-semibold tabular-nums text-gray-200 outline-none transition-colors hover:border-white/20 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 min-w-40"
               >
                 <option value="rolling">
                   Rolling ({NSE_MONTHLY_LOOKBACK} mo)
@@ -1539,20 +1391,6 @@ export default function MarketView() {
           </div>
         </div>
 
-        <div className="mt-10 space-y-5 border-t border-white/5 pt-10">
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500">
-              India stock screener (TradingView)
-            </h3>
-            <p className="text-xs text-gray-500">
-              Most capitalized and other presets for Indian markets — use alongside breadth and the
-              SENSEX chart above.
-            </p>
-          </div>
-          <div className="pt-2">
-            <TradingViewScreenerWidget />
-          </div>
-        </div>
       </div>
 
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-6">
