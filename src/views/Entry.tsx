@@ -802,7 +802,7 @@ export default function Entry() {
                     <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-2 text-[11px] text-gray-300">
                       <div className="text-gray-500 uppercase tracking-wide">Charge</div>
                       <div className="text-right text-gray-500 uppercase tracking-wide">Single sell</div>
-                      <div className="text-right text-gray-500 uppercase tracking-wide">3-step sell</div>
+                      <div className="text-right text-gray-500 uppercase tracking-wide">2-step sell</div>
 
                       <div>Buy STT</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.buyStt.toFixed(2)}</div>
@@ -810,37 +810,37 @@ export default function Entry() {
 
                       <div>Sell STT</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.sellStt.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.stt.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.stt.toFixed(2)}</div>
 
                       <div>Stamp Duty (Buy)</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.stampDuty.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.stampDuty.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.stampDuty.toFixed(2)}</div>
 
                       <div>Txn Charges</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.transactionCharge.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.transactionCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.transactionCharge.toFixed(2)}</div>
 
                       <div>SEBI Charges</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.sebiCharge.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.sebiCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.sebiCharge.toFixed(2)}</div>
 
                       <div>GST</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.gst.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.gst.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.gst.toFixed(2)}</div>
 
                       <div>Brokerage</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.brokerage.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.sellBrokerage.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.sellBrokerage.toFixed(2)}</div>
 
                       <div>DP Charges</div>
                       <div className="text-right font-mono">₹{deliveryChargesAtStop.dpCharge.toFixed(2)}</div>
-                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.dpCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.dpCharge.toFixed(2)}</div>
 
                       {isMtfTrade ? (
                         <>
                           <div>MTF Interest</div>
                           <div className="text-right font-mono">₹{deliveryChargesAtStop.mtfInterest.toFixed(2)}</div>
-                          <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.mtfInterest.toFixed(2)}</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.mtfInterest.toFixed(2)}</div>
 
                           <div>MTF Interest Rate</div>
                           <div className="text-right font-mono">{(mtfInputs.annualRate * 100).toFixed(2)}%</div>
@@ -848,7 +848,7 @@ export default function Entry() {
 
                           <div>Pledge + Unpledge</div>
                           <div className="text-right font-mono">₹{deliveryChargesAtStop.mtfPledgeCharges.toFixed(2)}</div>
-                          <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.mtfPledgeCharges.toFixed(2)}</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.twoStepSell.mtfPledgeCharges.toFixed(2)}</div>
                         </>
                       ) : null}
                     </div>
@@ -856,17 +856,17 @@ export default function Entry() {
                       <span className="text-xs text-amber-200">Total charges</span>
                       <span className="font-mono font-bold text-amber-100 text-right">₹{deliveryChargesAtStop.totalCharges.toFixed(2)}</span>
                       <span className="font-mono font-bold text-amber-100 text-right">
-                        ₹{deliveryChargesAtStop.totalChargesThreeStepSell.toFixed(2)}
+                        ₹{deliveryChargesAtStop.totalChargesTwoStepSell.toFixed(2)}
                       </span>
                     </div>
                     <div className="pt-2 border-t border-amber-500/20 grid grid-cols-[1.4fr_1fr_1fr] gap-2 items-center">
                       <span className="text-xs text-amber-200">Final risk (leveraged loss + charges)</span>
                       <span className="font-mono font-bold text-red-300 text-right">₹{deliveryChargesAtStop.finalRisk.toFixed(2)}</span>
                       <span className="font-mono font-bold text-red-300 text-right">
-                        ₹{deliveryChargesAtStop.finalRiskThreeStepSell.toFixed(2)}
+                        ₹{deliveryChargesAtStop.finalRiskTwoStepSell.toFixed(2)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-amber-200/70">3-step sell values are shown as cumulative totals.</p>
+                    <p className="text-[10px] text-amber-200/70">2-step sell values are shown as cumulative totals.</p>
                   </>
                 ) : (
                   <p className="text-xs text-gray-500">
@@ -907,16 +907,16 @@ export default function Entry() {
                   >
                     {frictionCost.percent.toFixed(2)}%
                   </div>
-                  {typeof frictionCost.threeStepPercent === 'number' ? (
+                  {typeof frictionCost.twoStepPercent === 'number' ? (
                     <div className="text-sm text-gray-300">
-                      <span className="text-gray-500">3-step sell friction: </span>
+                      <span className="text-gray-500">2-step sell friction: </span>
                       <span className="font-mono font-semibold text-amber-300">
-                        {frictionCost.threeStepPercent.toFixed(2)}%
+                        {frictionCost.twoStepPercent.toFixed(2)}%
                       </span>
                       <span className="text-gray-500">
                         {' '}
                         (+
-                        {(frictionCost.threeStepPercent - frictionCost.percent).toFixed(2)}
+                        {(frictionCost.twoStepPercent - frictionCost.percent).toFixed(2)}
                         %)
                       </span>
                     </div>

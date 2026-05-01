@@ -126,8 +126,8 @@ export function calculateDeliveryChargesAtStop(args: {
   const fundedAmount = isMtfTrade ? Math.max(0, grossBuyValue - capitalUsage) : 0;
   const mtfInterest = isMtfTrade ? (fundedAmount * mtfInputs.annualRate * mtfInputs.plannedDays) / 365 : 0;
   const mtfPledgeCharges = isMtfTrade ? 40 : 0;
-  const mtfPledgeChargesThreeStep = isMtfTrade ? 80 : 0;
-  const sellSteps = 3;
+  const mtfPledgeChargesTwoStep = isMtfTrade ? 80 : 0;
+  const sellSteps = 2;
   const sellValuePerStep = sellValue / sellSteps;
   const buyTurnover = buyValue;
   const sellTurnoverSingle = sellValue;
@@ -148,7 +148,7 @@ export function calculateDeliveryChargesAtStop(args: {
   const sebiChargeThreeStep = sebiChargeBuy + sebiChargeSellPerStep * sellSteps;
   const sttThreeStep = sellSttPerStep * sellSteps;
   const gstThreeStep = (sellBrokerageThreeStep + transactionChargeThreeStep) * DELIVERY_CHARGE_RATES.gstRate;
-  const totalChargesThreeStepSell =
+  const totalChargesTwoStepSell =
     sellBrokerageThreeStep +
     sttThreeStep +
     transactionChargeThreeStep +
@@ -157,7 +157,7 @@ export function calculateDeliveryChargesAtStop(args: {
     gstThreeStep +
     dpChargeThreeStep +
     mtfInterest +
-    mtfPledgeChargesThreeStep;
+    mtfPledgeChargesTwoStep;
   const stopLossPriceRisk = (entryPrice - stopLoss) * positionSize;
 
   return {
@@ -185,10 +185,10 @@ export function calculateDeliveryChargesAtStop(args: {
     mtfPledgeCharges,
     stopLossPriceRisk,
     totalCharges,
-    totalChargesThreeStepSell,
+    totalChargesTwoStepSell,
     finalRisk: stopLossPriceRisk + totalCharges,
-    finalRiskThreeStepSell: stopLossPriceRisk + totalChargesThreeStepSell,
-    threeStepSell: {
+    finalRiskTwoStepSell: stopLossPriceRisk + totalChargesTwoStepSell,
+    twoStepSell: {
       sellSteps,
       sellValuePerStep,
       sttPerStep: sellSttPerStep,
@@ -204,54 +204,64 @@ export function calculateDeliveryChargesAtStop(args: {
       dpCharge: dpChargeThreeStep,
       dpChargePerStep: DELIVERY_CHARGE_RATES.dpCharge,
       mtfInterest,
-      mtfPledgeCharges: mtfPledgeChargesThreeStep,
-      totalCharges: totalChargesThreeStepSell,
+      mtfPledgeCharges: mtfPledgeChargesTwoStep,
+      totalCharges: totalChargesTwoStepSell,
     },
   };
 }
 
 export function calculateFrictionCost(deliveryChargesAtStop: {
   totalCharges: number;
-  totalChargesThreeStepSell?: number;
+  totalChargesTwoStepSell?: number;
   baseBuyValue: number;
 } | null) {
   if (!deliveryChargesAtStop) return null;
   if (deliveryChargesAtStop.baseBuyValue <= 0) return null;
-  const percent = (deliveryChargesAtStop.totalCharges / deliveryChargesAtStop.baseBuyValue) * 100;
-  const threeStepPercent =
-    typeof deliveryChargesAtStop.totalChargesThreeStepSell === 'number'
-      ? (deliveryChargesAtStop.totalChargesThreeStepSell / deliveryChargesAtStop.baseBuyValue) * 100
-      : null;
-  const worstPercent = Math.max(percent, threeStepPercent ?? percent);
 
-  if (worstPercent >= 1.5) {
+
+  const percent = (deliveryChargesAtStop.totalCharges / deliveryChargesAtStop.baseBuyValue) * 100;
+  const twoStepPercent =
+    typeof deliveryChargesAtStop.totalChargesTwoStepSell === 'number'
+      ? (deliveryChargesAtStop.totalChargesTwoStepSell / deliveryChargesAtStop.baseBuyValue) * 100
+      : null;
+  const worstPercent = Math.max(percent, twoStepPercent ?? percent);
+
+  if (worstPercent > 1.2) {
     return {
       percent,
-      threeStepPercent,
+      twoStepPercent,
       tone: 'high' as const,
-      message: `High friction cost. At this pace, ${Math.round(100 / worstPercent)} trades can wipe your capital.`,
+      message: '❌ System killer',
+    };
+  }
+  if (worstPercent > 0.9) {
+    return {
+      percent,
+      twoStepPercent,
+      tone: 'high' as const,
+      message: '🚨 Bad',
+    };
+  }
+  if (worstPercent >= 0.8) {
+    return {
+      percent,
+      twoStepPercent,
+      tone: 'medium' as const,
+      message: '⚠️ Borderline',
     };
   }
   if (worstPercent >= 0.5) {
     return {
       percent,
-      threeStepPercent,
-      tone: 'medium' as const,
-      message: `${Math.round(100 / worstPercent)} trades can wipe your capital.`,
-    };
-  }
-  if (worstPercent < 0.4) {
-    return {
-      percent,
-      threeStepPercent,
+      twoStepPercent,
       tone: 'low' as const,
-      message: 'Now you do not need to worry about charges. It will not affect you much.',
+      message: '👍 Good',
     };
   }
   return {
     percent,
-    threeStepPercent,
+    twoStepPercent,
     tone: 'low' as const,
-    message: 'Good friction band, but even here ~200 trades can wipe your capital.',
+    message: '🔥 Excellent',
   };
 }

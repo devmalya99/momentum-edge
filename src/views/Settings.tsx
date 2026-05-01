@@ -1,10 +1,28 @@
 import React from 'react';
 import { useTradeStore } from '../store/useTradeStore';
 import { Wallet, ShieldAlert, Database, Trash2, Plus, Tag, ListChecks } from 'lucide-react';
+import { useAllocatedTradingCapitalQuery } from '@/features/settings/useAllocatedTradingCapitalQuery';
 
 export default function Settings() {
   const { settings, updateSettings, trades, rules, addRule, deleteRule } = useTradeStore();
   const [newChecklistRule, setNewChecklistRule] = React.useState('');
+  const [capitalInput, setCapitalInput] = React.useState(
+    settings.totalCapital > 0 ? String(settings.totalCapital) : '',
+  );
+  const { query: allocatedCapitalQuery, saveMutation: saveAllocatedCapitalMutation } =
+    useAllocatedTradingCapitalQuery();
+
+  React.useEffect(() => {
+    const serverCapital = allocatedCapitalQuery.data;
+    if (serverCapital === undefined) return;
+    if (serverCapital === null) {
+      setCapitalInput(settings.totalCapital > 0 ? String(settings.totalCapital) : '');
+      return;
+    }
+    const value = serverCapital > 0 ? String(serverCapital) : '';
+    setCapitalInput(value);
+    void updateSettings({ totalCapital: serverCapital });
+  }, [allocatedCapitalQuery.data, settings.totalCapital, updateSettings]);
 
   const handleClearData = async () => {
     if (confirm('Are you sure you want to clear ALL trade data? This cannot be undone.')) {
@@ -38,6 +56,12 @@ export default function Settings() {
     setNewChecklistRule('');
   };
 
+  const savedCapital = Number(settings.totalCapital) || 0;
+  const parsedCapitalInput = Number(capitalInput);
+  const nextCapital =
+    Number.isFinite(parsedCapitalInput) && parsedCapitalInput > 0 ? parsedCapitalInput : 0;
+  const capitalDirty = capitalInput.trim() !== (savedCapital > 0 ? String(savedCapital) : '');
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       <div>
@@ -58,10 +82,34 @@ export default function Settings() {
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Total Trading Capital ($)</label>
               <input
                 type="number"
-                value={settings.totalCapital}
-                onChange={(e) => updateSettings({ totalCapital: parseFloat(e.target.value) })}
+                min={0}
+                value={capitalInput}
+                onChange={(e) => setCapitalInput(e.target.value)}
                 className="w-full bg-[#0a0a0b] border border-white/10 rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all text-xl font-bold"
               />
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={saveAllocatedCapitalMutation.isPending || !capitalDirty}
+                  onClick={() => {
+                    void saveAllocatedCapitalMutation.mutateAsync(nextCapital, {
+                      onSuccess: async (savedValue) => {
+                        await updateSettings({ totalCapital: savedValue });
+                      },
+                    });
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all uppercase tracking-widest"
+                >
+                  Save Capital
+                </button>
+                {saveAllocatedCapitalMutation.isError ? (
+                  <span className="text-xs text-red-400">
+                    {saveAllocatedCapitalMutation.error instanceof Error
+                      ? saveAllocatedCapitalMutation.error.message
+                      : 'Failed to save capital'}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Maximum Risk Per Trade (%)</label>

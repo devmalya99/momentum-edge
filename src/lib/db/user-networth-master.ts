@@ -23,6 +23,8 @@ export type UserNetworthMaster = {
   receivables: number;
   /** Remaining cash position in Zerodha account (user-entered). */
   zerodhaCashHolding: number;
+  /** User-allocated total capital for trading from Settings. */
+  allocatedTradingCapital: number;
 };
 
 type UserNetworthMasterRow = {
@@ -42,6 +44,7 @@ type UserNetworthMasterRow = {
   total_credit_card_due: number;
   receivables: number;
   zerodha_cash_holding: number;
+  allocated_trading_capital: number;
 };
 
 const DEFAULT_MASTER: UserNetworthMaster = {
@@ -61,6 +64,7 @@ const DEFAULT_MASTER: UserNetworthMaster = {
   totalCreditCardDue: 0,
   receivables: 0,
   zerodhaCashHolding: 0,
+  allocatedTradingCapital: 0,
 };
 
 function mapRow(row: UserNetworthMasterRow | undefined): UserNetworthMaster {
@@ -82,6 +86,7 @@ function mapRow(row: UserNetworthMasterRow | undefined): UserNetworthMaster {
     totalCreditCardDue: Number(row.total_credit_card_due) || 0,
     receivables: Number(row.receivables) || 0,
     zerodhaCashHolding: Number(row.zerodha_cash_holding) || 0,
+    allocatedTradingCapital: Number(row.allocated_trading_capital) || 0,
   };
 }
 
@@ -152,6 +157,14 @@ async function migrateZerodhaCashHoldingColumn(): Promise<void> {
   `;
 }
 
+async function migrateAllocatedTradingCapitalColumn(): Promise<void> {
+  const sql = getNeonSql();
+  await sql`
+    ALTER TABLE user_networth_master
+    ADD COLUMN IF NOT EXISTS allocated_trading_capital double precision NOT NULL DEFAULT 0
+  `;
+}
+
 export async function ensureUserNetworthMasterTable(): Promise<void> {
   await ensureUsersTable();
   const sql = getNeonSql();
@@ -174,6 +187,7 @@ export async function ensureUserNetworthMasterTable(): Promise<void> {
       total_credit_card_due double precision NOT NULL DEFAULT 0,
       receivables double precision NOT NULL DEFAULT 0,
       zerodha_cash_holding double precision NOT NULL DEFAULT 0,
+      allocated_trading_capital double precision NOT NULL DEFAULT 0,
       updated_at timestamptz NOT NULL DEFAULT now()
     )
   `;
@@ -182,6 +196,7 @@ export async function ensureUserNetworthMasterTable(): Promise<void> {
   await migrateRealInvestFromBankColumn();
   await migrateReceivablesColumn();
   await migrateZerodhaCashHoldingColumn();
+  await migrateAllocatedTradingCapitalColumn();
 }
 
 export async function ensureUserNetworthMasterRow(userId: string): Promise<void> {
@@ -214,7 +229,8 @@ export async function getUserNetworthMaster(userId: string): Promise<UserNetwort
       real_invest_from_bank,
       total_credit_card_due,
       receivables,
-      zerodha_cash_holding
+      zerodha_cash_holding,
+      allocated_trading_capital
     FROM user_networth_master
     WHERE user_id = ${userId}
     LIMIT 1
@@ -233,6 +249,23 @@ export async function updateRealInvestFromBank(
     UPDATE user_networth_master
     SET
       real_invest_from_bank = ${v},
+      updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return getUserNetworthMaster(userId);
+}
+
+export async function updateAllocatedTradingCapital(
+  userId: string,
+  allocatedTradingCapital: number,
+): Promise<UserNetworthMaster> {
+  await ensureUserNetworthMasterRow(userId);
+  const sql = getNeonSql();
+  const v = Math.max(0, Number(allocatedTradingCapital) || 0);
+  await sql`
+    UPDATE user_networth_master
+    SET
+      allocated_trading_capital = ${v},
       updated_at = now()
     WHERE user_id = ${userId}
   `;

@@ -274,10 +274,14 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       const masterRes = await fetch('/api/networth/master', { cache: 'no-store' });
       if (masterRes.ok) {
         const masterPayload = (await masterRes.json()) as {
-          master?: { marginAmount?: number };
+          master?: { marginAmount?: number; allocatedTradingCapital?: number };
         };
         const serverMargin = Number(masterPayload.master?.marginAmount);
         settings.brokerMarginUsed = Number.isFinite(serverMargin) && serverMargin > 0 ? serverMargin : 0;
+        const serverAllocatedCapital = Number(masterPayload.master?.allocatedTradingCapital);
+        if (Number.isFinite(serverAllocatedCapital) && serverAllocatedCapital >= 0) {
+          settings.totalCapital = serverAllocatedCapital;
+        }
       }
     } catch {
       /* offline or unauthenticated */
