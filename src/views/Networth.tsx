@@ -97,14 +97,7 @@ export default function Networth() {
         maxPossibleScore: 0,
         scorePercentage: 0,
         verdict: 'B' as const,
-        checklist: {
-          priorRally: false,
-          tightBase: false,
-          breakoutLevel: false,
-          volumeConfirmation: false,
-          emaAlignment: false,
-          relativeStrength: false,
-        },
+        checklist: {},
         notes: '',
         mistakes: [],
       };

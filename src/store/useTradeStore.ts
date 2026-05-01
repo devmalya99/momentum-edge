@@ -44,6 +44,51 @@ async function syncHoldingsTradeTypeToServer(symbol: string, tradeType: string |
   }
 }
 
+async function upsertRuleToServer(rule: Rule): Promise<void> {
+  try {
+    const res = await fetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rule }),
+    });
+    if (!res.ok) {
+      console.error('[Store] Failed to save rule to server.');
+    }
+  } catch {
+    /* keep local write; sync later */
+  }
+}
+
+async function updateRuleOnServer(rule: Rule): Promise<void> {
+  try {
+    const res = await fetch('/api/rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rule }),
+    });
+    if (!res.ok) {
+      console.error('[Store] Failed to update rule on server.');
+    }
+  } catch {
+    /* keep local write; sync later */
+  }
+}
+
+async function deleteRuleFromServer(id: string): Promise<void> {
+  try {
+    const res = await fetch('/api/rules', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) {
+      console.error('[Store] Failed to delete rule on server.');
+    }
+  } catch {
+    /* keep local delete; sync later */
+  }
+}
+
 interface TradeState {
   trades: Trade[];
   rules: Rule[];
@@ -74,18 +119,18 @@ interface TradeState {
   deleteWatchlistList: (listId: string) => Promise<void>;
 }
 
-const DEFAULT_RULES: Omit<Rule, 'id'>[] = [
-  { name: 'Strong prior rally exists', category: 'Structure', maxScore: 10, enabled: true },
-  { name: 'Clean consolidation (tight base)', category: 'Structure', maxScore: 10, enabled: true },
-  { name: 'Breakout near resistance', category: 'Structure', maxScore: 10, enabled: true },
-  { name: 'Price above 20 > 50 > 100 EMA', category: 'Trend', maxScore: 10, enabled: true },
-  { name: 'Higher timeframe uptrend', category: 'Trend', maxScore: 10, enabled: true },
-  { name: 'Volume contraction → expansion', category: 'Confirmation', maxScore: 10, enabled: true },
-  { name: 'Strong breakout candle', category: 'Confirmation', maxScore: 10, enabled: true },
-  { name: 'No major bearish divergence', category: 'Context', maxScore: 10, enabled: true },
-  { name: 'Relative strength vs market', category: 'Context', maxScore: 10, enabled: true },
-  { name: 'Market breadth strength (A/D)', category: 'Context', maxScore: 10, enabled: true },
-];
+function createChecklistState(criteria: string[]): Record<string, boolean> {
+  const normalized = criteria
+    .map((item) => item.trim())
+    .filter((item, idx, arr) => item.length > 0 && arr.indexOf(item) === idx);
+
+  if (normalized.length === 0) return {};
+
+  return normalized.reduce<Record<string, boolean>>((acc, item) => {
+    acc[item] = false;
+    return acc;
+  }, {});
+}
 
 export const IMPORTED_HOLDINGS_NOTE = 'Imported from broker holdings upload.';
 
@@ -100,7 +145,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     id: 'global', 
     totalCapital: 100000, 
     riskPerTradePercent: 1,
+    mtfRate: 0.16,
     tradeTypes: [],
+    checklistCriteria: [],
+    checklistPassingScore: 70,
     networthAssets: [],
     brokerMarginUsed: 0,
   },
@@ -118,21 +166,41 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     );
     let watchlist = (await db.getAll('watchlist')).sort((a, b) => b.addedAt - a.addedAt);
 
-    if (rules.length === 0) {
-      for (const r of DEFAULT_RULES) {
-        const rule = { ...r, id: generateId() };
-        await db.put('rules', rule);
-      }
-      rules = await db.getAll('rules');
-    } else {
-      // Check for missing default rules and add them (Migration)
-      for (const dr of DEFAULT_RULES) {
-        if (!rules.find(r => r.name === dr.name)) {
-          const rule = { ...dr, id: generateId() };
-          await db.put('rules', rule);
+    if (rules.length > 0) {
+      // Binary-only scoring model: each rule is Yes/No, max score fixed at 1.
+      let rulesUpdated = false;
+      for (const rule of rules) {
+        if (rule.maxScore !== 1) {
+          await db.put('rules', { ...rule, maxScore: 1 });
+          rulesUpdated = true;
         }
       }
-      rules = await db.getAll('rules');
+      if (rulesUpdated) {
+        rules = await db.getAll('rules');
+      }
+    }
+
+    try {
+      const res = await fetch('/api/rules', { cache: 'no-store' });
+      if (res.ok) {
+        const payload = (await res.json()) as { rules?: Rule[] };
+        const serverRulesRaw = Array.isArray(payload.rules) ? payload.rules : [];
+        const serverRules = serverRulesRaw
+          .map((rule) => ({
+            ...rule,
+            maxScore: 1,
+          }))
+          .filter((rule) => rule.id && rule.name);
+        const tx = db.transaction('rules', 'readwrite');
+        await tx.store.clear();
+        for (const rule of serverRules) {
+          await tx.store.put(rule);
+        }
+        await tx.done;
+        rules = serverRules;
+      }
+    } catch {
+      /* offline or unauthenticated; keep local rules */
     }
 
     const DEFAULT_TRADE_TYPES = [
@@ -147,7 +215,10 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         id: 'global', 
         totalCapital: 100000, 
         riskPerTradePercent: 1,
+        mtfRate: 0.16,
         tradeTypes: DEFAULT_TRADE_TYPES,
+        checklistCriteria: [],
+        checklistPassingScore: 70,
         brokerMarginUsed: 0,
         networthAssets: [
           { id: generateId(), name: 'Bank Balance', value: 0 },
@@ -162,12 +233,33 @@ export const useTradeStore = create<TradeState>((set, get) => ({
         settings.tradeTypes = DEFAULT_TRADE_TYPES;
         updated = true;
       }
+      if (typeof settings.mtfRate !== 'number' || !Number.isFinite(settings.mtfRate) || settings.mtfRate < 0) {
+        settings.mtfRate = 0.16;
+        updated = true;
+      }
       if (!settings.networthAssets) {
         settings.networthAssets = [
           { id: generateId(), name: 'Bank Balance', value: 0 },
           { id: generateId(), name: 'Stocks', value: 0 },
         ];
         updated = true;
+      }
+      if (!Array.isArray(settings.checklistCriteria)) {
+        settings.checklistCriteria = [];
+        updated = true;
+      }
+      if (
+        typeof settings.checklistPassingScore !== 'number' ||
+        !Number.isFinite(settings.checklistPassingScore)
+      ) {
+        settings.checklistPassingScore = 70;
+        updated = true;
+      } else {
+        const clampedScore = Math.max(0, Math.min(100, settings.checklistPassingScore));
+        if (clampedScore !== settings.checklistPassingScore) {
+          settings.checklistPassingScore = clampedScore;
+          updated = true;
+        }
       }
       if (typeof settings.brokerMarginUsed !== 'number' || !Number.isFinite(settings.brokerMarginUsed)) {
         settings.brokerMarginUsed = 0;
@@ -228,14 +320,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
             maxPossibleScore: localTrade?.maxPossibleScore || 0,
             scorePercentage: localTrade?.scorePercentage || 0,
             verdict: localTrade?.verdict || 'B',
-            checklist: localTrade?.checklist || {
-              priorRally: false,
-              tightBase: false,
-              breakoutLevel: false,
-              volumeConfirmation: false,
-              emaAlignment: false,
-              relativeStrength: false,
-            },
+            checklist: localTrade?.checklist || createChecklistState(settings.checklistCriteria),
             notes: IMPORTED_HOLDINGS_NOTE,
             mistakes: localTrade?.mistakes || [],
           };
@@ -422,8 +507,9 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
   addRule: async (ruleData) => {
     const db = await initDB();
-    const rule: Rule = { ...ruleData, id: generateId() };
+    const rule: Rule = { ...ruleData, maxScore: 1, id: generateId() };
     await db.put('rules', rule);
+    await upsertRuleToServer(rule);
     set((state) => ({ rules: [...state.rules, rule] }));
   },
 
@@ -431,8 +517,9 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const db = await initDB();
     const rule = await db.get('rules', id);
     if (!rule) return;
-    const updatedRule = { ...rule, ...updates };
+    const updatedRule = { ...rule, ...updates, maxScore: 1 };
     await db.put('rules', updatedRule);
+    await updateRuleOnServer(updatedRule);
     set((state) => ({
       rules: state.rules.map((r) => (r.id === id ? updatedRule : r)),
     }));
@@ -441,6 +528,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
   deleteRule: async (id) => {
     const db = await initDB();
     await db.delete('rules', id);
+    await deleteRuleFromServer(id);
     set((state) => ({
       rules: state.rules.filter((r) => r.id !== id),
     }));
@@ -450,6 +538,16 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     const db = await initDB();
     const settings = get().settings;
     const updatedSettings = { ...settings, ...updates };
+
+    if (Array.isArray(updates.checklistCriteria)) {
+      updatedSettings.checklistCriteria = updates.checklistCriteria
+        .map((item) => item.trim())
+        .filter((item, idx, arr) => item.length > 0 && arr.indexOf(item) === idx);
+    }
+    if (typeof updates.checklistPassingScore === 'number' && Number.isFinite(updates.checklistPassingScore)) {
+      updatedSettings.checklistPassingScore = Math.max(0, Math.min(100, updates.checklistPassingScore));
+    }
+
     await db.put('settings', updatedSettings);
     set({ settings: updatedSettings });
 

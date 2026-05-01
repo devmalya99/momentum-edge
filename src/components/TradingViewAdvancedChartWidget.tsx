@@ -36,7 +36,7 @@ function buildConfig(tvSymbol: string) {
     show_popup_button: true,
     popup_height: '650',
     popup_width: '1000',
-    studies: ['STD;RSI', 'STD;EMA'],
+    studies: ['STD;RSI', 'STD;EMA' , 'STD;ROC'],
     autosize: true,
   };
 }

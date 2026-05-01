@@ -1,8 +1,18 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useTradeStore } from '../store/useTradeStore';
-import { getVerdict, getVerdictColor, calculateRisk } from '../utils/calculations';
+import { getVerdictColor } from '../utils/calculations';
 import { AlertTriangle, CheckCircle2, Info, ArrowRight, Search, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  calculateDeliveryChargesAtStop,
+  calculateFrictionCost,
+  calculateRiskData,
+  calculateRiskRewardPlan,
+  calculateScoringData,
+  calculateStopLossMoneyAtRisk,
+  parseMtfInputs,
+  roundToTick,
+} from '@/features/entry/entry-calculations';
 
 type NseEquitySearchHit = {
   symbol: string;
@@ -25,17 +35,9 @@ type NseEquityQuotePayload = {
   error?: string;
 };
 
-function roundToTick(price: number, tick: number | null): number {
-  if (tick != null && tick > 0) {
-    const steps = Math.round(price / tick);
-    return steps * tick;
-  }
-  return Math.round(price * 100) / 100;
-}
-
 export default function Entry() {
   const { rules, settings, addTrade } = useTradeStore();
-  const [step, setStep] = useState(1); // 1: Scoring, 2: Details, 3: Checklist
+  const [step, setStep] = useState(1); // 1: Rule validation, 2: Details
   
   // Form State
   const [symbol, setSymbol] = useState('');
@@ -63,62 +65,70 @@ export default function Entry() {
   const [quoteTickSize, setQuoteTickSize] = useState<number | null>(null);
   const [stopLossPercentStr, setStopLossPercentStr] = useState('');
   const [targetGainPercentStr, setTargetGainPercentStr] = useState('');
+  const [isMtfTrade, setIsMtfTrade] = useState(false);
+  const [mtfLeverageStr, setMtfLeverageStr] = useState('2');
+  const [mtfPlannedDaysStr, setMtfPlannedDaysStr] = useState('1');
+  const [mtfInterestRateStr, setMtfInterestRateStr] = useState('16');
 
   // Scoring State
   const [ruleScores, setRuleScores] = useState<Record<string, number>>({});
   
-  // Checklist State
-  const [checklist, setChecklist] = useState({
-    priorRally: false,
-    tightBase: false,
-    breakoutLevel: false,
-    volumeConfirmation: false,
-    emaAlignment: false,
-    relativeStrength: false,
-  });
-
   const enabledRules = useMemo(() => rules.filter(r => r.enabled), [rules]);
   
-  const scoringData = useMemo(() => {
-    const totalScore = (Object.values(ruleScores) as number[]).reduce((a, b) => a + b, 0);
-    const maxPossibleScore = enabledRules.reduce((a, b) => a + b.maxScore, 0);
-    const percentage = maxPossibleScore > 0 ? (totalScore / maxPossibleScore) * 100 : 0;
-    const verdict = getVerdict(percentage);
-    return { totalScore, maxPossibleScore, percentage, verdict };
-  }, [ruleScores, enabledRules]);
+  const scoringData = useMemo(
+    () => calculateScoringData(ruleScores, enabledRules.length),
+    [ruleScores, enabledRules.length],
+  );
 
-  const riskData = useMemo(() => {
-    if (entryPrice > 0 && stopLoss > 0 && positionSize > 0) {
-      return calculateRisk(entryPrice, stopLoss, positionSize);
-    }
-    return { totalRisk: 0, riskPercent: 0 };
-  }, [entryPrice, stopLoss, positionSize]);
+  const riskData = useMemo(
+    () => calculateRiskData(entryPrice, stopLoss, positionSize),
+    [entryPrice, stopLoss, positionSize],
+  );
 
-  const stopLossMoneyAtRisk = useMemo(() => {
-    if (entryPrice <= 0 || stopLoss <= 0 || positionSize <= 0) return null;
-    const perShare = entryPrice - stopLoss;
-    if (perShare <= 0) return null;
-    return { perShare, total: perShare * positionSize };
-  }, [entryPrice, stopLoss, positionSize]);
+  const stopLossMoneyAtRisk = useMemo(
+    () => calculateStopLossMoneyAtRisk(entryPrice, stopLoss, positionSize),
+    [entryPrice, stopLoss, positionSize],
+  );
+
+  const mtfInputs = useMemo(
+    () =>
+      parseMtfInputs({
+        mtfLeverageStr,
+        mtfPlannedDaysStr,
+        mtfInterestRateStr,
+        defaultAnnualRate: settings.mtfRate ?? 0.16,
+      }),
+    [mtfLeverageStr, mtfPlannedDaysStr, mtfInterestRateStr, settings.mtfRate],
+  );
+
+  const deliveryChargesAtStop = useMemo(
+    () =>
+      calculateDeliveryChargesAtStop({
+        entryPrice,
+        stopLoss,
+        positionSize,
+        isMtfTrade,
+        mtfInputs,
+      }),
+    [entryPrice, stopLoss, positionSize, isMtfTrade, mtfInputs],
+  );
+
+  const frictionCost = useMemo(() => calculateFrictionCost(deliveryChargesAtStop), [deliveryChargesAtStop]);
 
   /** Long: target % above entry; R:R = reward per share ÷ risk per share. */
-  const riskRewardPlan = useMemo(() => {
-    const gainPct = parseFloat(targetGainPercentStr);
-    if (!Number.isFinite(gainPct) || gainPct <= 0 || entryPrice <= 0) return null;
-    if (stopLoss <= 0 || positionSize <= 0) return null;
-    const riskPerShare = entryPrice - stopLoss;
-    if (riskPerShare <= 0) return null;
-    const rewardPerShare = entryPrice * (gainPct / 100);
-    const targetPrice = roundToTick(entryPrice + rewardPerShare, quoteTickSize);
-    const totalReward = rewardPerShare * positionSize;
-    const ratio = rewardPerShare / riskPerShare;
-    return { targetPrice, rewardPerShare, totalReward, ratio };
-  }, [targetGainPercentStr, entryPrice, stopLoss, positionSize, quoteTickSize]);
+  const riskRewardPlan = useMemo(
+    () =>
+      calculateRiskRewardPlan({
+        targetGainPercentStr,
+        entryPrice,
+        stopLoss,
+        positionSize,
+        quoteTickSize,
+      }),
+    [targetGainPercentStr, entryPrice, stopLoss, positionSize, quoteTickSize],
+  );
 
-  const isChecklistComplete = Object.values(checklist).every(v => v === true);
-  const maxRiskAllowed = settings.totalCapital * (settings.riskPerTradePercent / 100);
-  const isRiskExceeded = riskData.totalRisk > maxRiskAllowed;
-  const canSubmit = symbol && type && entryPrice > 0 && stopLoss > 0 && positionSize > 0 && isChecklistComplete && scoringData.percentage >= 60 && !isRiskExceeded;
+  const canSubmit = symbol && type && entryPrice > 0 && stopLoss > 0 && positionSize > 0 && scoringData.percentage >= 60;
 
   // Set default type if not set and types exist
   React.useEffect(() => {
@@ -253,6 +263,10 @@ export default function Entry() {
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    const checklist = enabledRules.reduce<Record<string, boolean>>((acc, rule) => {
+      acc[rule.name] = ruleScores[rule.id] === 1;
+      return acc;
+    }, {});
     
     await addTrade({
       symbol,
@@ -267,6 +281,14 @@ export default function Entry() {
       scorePercentage: scoringData.percentage,
       verdict: scoringData.verdict,
       checklist,
+      mtf: {
+        enabled: isMtfTrade,
+        leverage: mtfInputs.leverage,
+        plannedHoldDays: mtfInputs.plannedDays,
+        annualInterestRate: mtfInputs.annualRate * 100,
+        pledgeCharge: isMtfTrade ? 20 : 0,
+        unpledgeCharge: isMtfTrade ? 20 : 0,
+      },
       notes,
       mistakes: [],
     });
@@ -287,7 +309,7 @@ export default function Entry() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2].map((s) => (
             <div 
               key={s}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -300,14 +322,14 @@ export default function Entry() {
         </div>
       </div>
 
-      {/* Step 1: Scoring Engine */}
+      {/* Step 1: Rule Validation */}
       {step === 1 && (
         <div className="space-y-6">
           <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 shadow-2xl">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
               <div>
-                <h2 className="text-xl font-semibold">Setup Scoring</h2>
-                <p className="text-sm text-gray-500">Quantify the quality of this setup based on your rules.</p>
+                <h2 className="text-xl font-semibold">Rule Check (Yes / No)</h2>
+                <p className="text-sm text-gray-500">Mark each active rule as passed or not passed.</p>
               </div>
               <div className="flex items-center gap-4">
                 <div className="text-right">
@@ -323,20 +345,41 @@ export default function Entry() {
             </div>
 
             <div className="space-y-6">
+              {enabledRules.length === 0 ? (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-300">
+                  No active rules found. Add your rules in the Rules page or Settings first.
+                </div>
+              ) : null}
               {enabledRules.map((rule) => (
                 <div key={rule.id} className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-300 font-medium">{rule.name}</span>
-                    <span className="text-gray-500">{ruleScores[rule.id] || 0} / {rule.maxScore}</span>
+                    <span className="text-gray-500">{ruleScores[rule.id] === 1 ? 'Yes' : 'No'}</span>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max={rule.maxScore}
-                    value={ruleScores[rule.id] || 0}
-                    onChange={(e) => setRuleScores({ ...ruleScores, [rule.id]: parseInt(e.target.value) })}
-                    className="w-full h-1.5 bg-[#0a0a0b] rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRuleScores({ ...ruleScores, [rule.id]: 1 })}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        ruleScores[rule.id] === 1
+                          ? 'bg-green-500/20 border-green-500/40 text-green-300'
+                          : 'bg-[#0a0a0b] border-white/10 text-gray-400 hover:border-white/20'
+                      }`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRuleScores({ ...ruleScores, [rule.id]: 0 })}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        ruleScores[rule.id] !== 1
+                          ? 'bg-red-500/20 border-red-500/40 text-red-300'
+                          : 'bg-[#0a0a0b] border-white/10 text-gray-400 hover:border-white/20'
+                      }`}
+                    >
+                      No
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -583,6 +626,66 @@ export default function Entry() {
                   className="w-full bg-[#0a0a0b] border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
                 />
               </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    Is this an MTF trade?
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsMtfTrade((prev) => !prev)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                      isMtfTrade
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                        : 'bg-white/5 border-white/10 text-gray-400'
+                    }`}
+                  >
+                    {isMtfTrade ? 'Yes' : 'No'}
+                  </button>
+                </div>
+                {isMtfTrade ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                        Leverage (1x - 5x)
+                      </label>
+                      <input
+                        type="text"
+                        value={mtfLeverageStr}
+                        onChange={(e) => setMtfLeverageStr(e.target.value)}
+                        placeholder="e.g. 2.5"
+                        className="w-full bg-[#111114] border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                        Planned hold days
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={mtfPlannedDaysStr}
+                        onChange={(e) => setMtfPlannedDaysStr(e.target.value)}
+                        className="w-full bg-[#111114] border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                        Interest rate (% p.a.)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={mtfInterestRateStr}
+                        onChange={(e) => setMtfInterestRateStr(e.target.value)}
+                        className="w-full bg-[#111114] border border-white/10 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 transition-all"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -605,7 +708,7 @@ export default function Entry() {
                         ₹{stopLossMoneyAtRisk.perShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                       </span>
                       <span className="text-gray-500"> × </span>
-                      <span className="font-mono">{positionSize}</span>
+                      <span className="font-mono">{positionSize || '_'}</span>
                       <span className="text-gray-500"> shares</span>
                     </div>
                     <div className="text-2xl font-black text-red-400">
@@ -640,7 +743,7 @@ export default function Entry() {
                       <span className="font-mono text-green-300">
                         ₹{riskRewardPlan.rewardPerShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}{' '}
                       </span>
-                      <span className="text-gray-500">× {positionSize} = </span>
+                      <span className="text-gray-500">× {positionSize || '_'} = </span>
                       <span className="font-mono font-semibold text-green-400">
                         ₹
                         {riskRewardPlan.totalReward.toLocaleString(undefined, {
@@ -677,26 +780,154 @@ export default function Entry() {
               <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5">
                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Capital Usage</div>
                 <div className="text-xl font-bold text-blue-400">
-                  ${(entryPrice * positionSize).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {isMtfTrade ? 'Total Buy Value (cash+ mtf)' : 'Total Buy Value (cash)'} ₹{(entryPrice * positionSize).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })}
                 </div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  {((entryPrice * positionSize / settings.totalCapital) * 100).toFixed(1)}% of total capital
-                </div>
+                {deliveryChargesAtStop ? (
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    Effective investment ({isMtfTrade ? 'MTF' : 'Cash'}) : ₹
+                    {isMtfTrade ? Math.round(entryPrice * positionSize/parseFloat(mtfLeverageStr))  : entryPrice * positionSize}
+                    {isMtfTrade ? ` (${deliveryChargesAtStop.leverage.toFixed(2)}x)` : ''}
+                  </div>
+                ) : null}
               </div>
-            </div>
 
-            {isRiskExceeded && (
-              <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-start gap-4">
-                <AlertTriangle className="text-red-400 shrink-0" size={20} />
-                <div>
-                  <h4 className="text-sm font-bold text-red-400 uppercase tracking-wider">Risk Limit Exceeded</h4>
-                  <p className="text-sm text-red-400/80">
-                    Your risk of ${riskData.totalRisk.toLocaleString(undefined, { minimumFractionDigits: 2 })} exceeds your maximum allowed risk of ${maxRiskAllowed.toLocaleString(undefined, { minimumFractionDigits: 2 })} ({settings.riskPerTradePercent}% of ${settings.totalCapital.toLocaleString()}).
-                    Reduce your position size or tighten stop loss.
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 space-y-2">
+                <div className="text-[10px] font-bold text-amber-300/90 uppercase tracking-widest">
+                  Estimated taxes & charges (delivery)
+                </div>
+                {deliveryChargesAtStop ? (
+                  <>
+                    <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-2 text-[11px] text-gray-300">
+                      <div className="text-gray-500 uppercase tracking-wide">Charge</div>
+                      <div className="text-right text-gray-500 uppercase tracking-wide">Single sell</div>
+                      <div className="text-right text-gray-500 uppercase tracking-wide">3-step sell</div>
+
+                      <div>Buy STT</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.buyStt.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.buyStt.toFixed(2)}</div>
+
+                      <div>Sell STT</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.sellStt.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.stt.toFixed(2)}</div>
+
+                      <div>Stamp Duty (Buy)</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.stampDuty.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.stampDuty.toFixed(2)}</div>
+
+                      <div>Txn Charges</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.transactionCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.transactionCharge.toFixed(2)}</div>
+
+                      <div>SEBI Charges</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.sebiCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.sebiCharge.toFixed(2)}</div>
+
+                      <div>GST</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.gst.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.gst.toFixed(2)}</div>
+
+                      <div>Brokerage</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.brokerage.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.sellBrokerage.toFixed(2)}</div>
+
+                      <div>DP Charges</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.dpCharge.toFixed(2)}</div>
+                      <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.dpCharge.toFixed(2)}</div>
+
+                      {isMtfTrade ? (
+                        <>
+                          <div>MTF Interest</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.mtfInterest.toFixed(2)}</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.mtfInterest.toFixed(2)}</div>
+
+                          <div>MTF Interest Rate</div>
+                          <div className="text-right font-mono">{(mtfInputs.annualRate * 100).toFixed(2)}%</div>
+                          <div className="text-right font-mono">{(mtfInputs.annualRate * 100).toFixed(2)}%</div>
+
+                          <div>Pledge + Unpledge</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.mtfPledgeCharges.toFixed(2)}</div>
+                          <div className="text-right font-mono">₹{deliveryChargesAtStop.threeStepSell.mtfPledgeCharges.toFixed(2)}</div>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="pt-2 border-t border-amber-500/20 grid grid-cols-[1.4fr_1fr_1fr] gap-2 items-center">
+                      <span className="text-xs text-amber-200">Total charges</span>
+                      <span className="font-mono font-bold text-amber-100 text-right">₹{deliveryChargesAtStop.totalCharges.toFixed(2)}</span>
+                      <span className="font-mono font-bold text-amber-100 text-right">
+                        ₹{deliveryChargesAtStop.totalChargesThreeStepSell.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="pt-2 border-t border-amber-500/20 grid grid-cols-[1.4fr_1fr_1fr] gap-2 items-center">
+                      <span className="text-xs text-amber-200">Final risk (leveraged loss + charges)</span>
+                      <span className="font-mono font-bold text-red-300 text-right">₹{deliveryChargesAtStop.finalRisk.toFixed(2)}</span>
+                      <span className="font-mono font-bold text-red-300 text-right">
+                        ₹{deliveryChargesAtStop.finalRiskThreeStepSell.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-200/70">3-step sell values are shown as cumulative totals.</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Enter valid entry, stop loss, and shares to estimate charges and final risk.
+                  </p>
+                )}
+              </div>
+
+              {frictionCost ? (
+                <div
+                  className={`p-4 rounded-2xl border space-y-2 ${
+                    frictionCost.tone === 'high'
+                      ? 'bg-red-500/10 border-red-500/30'
+                      : frictionCost.tone === 'medium'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-emerald-500/10 border-emerald-500/30'
+                  }`}
+                >
+                  <div
+                    className={`text-[10px] font-bold uppercase tracking-widest ${
+                      frictionCost.tone === 'high'
+                        ? 'text-red-300'
+                        : frictionCost.tone === 'medium'
+                          ? 'text-amber-300'
+                          : 'text-emerald-300'
+                    }`}
+                  >
+                    Friction Cost
+                  </div>
+                  <div
+                    className={`text-2xl font-black ${
+                      frictionCost.tone === 'high'
+                        ? 'text-red-300'
+                        : frictionCost.tone === 'medium'
+                          ? 'text-amber-300'
+                          : 'text-emerald-300'
+                    }`}
+                  >
+                    {frictionCost.percent.toFixed(2)}%
+                  </div>
+                  {typeof frictionCost.threeStepPercent === 'number' ? (
+                    <div className="text-sm text-gray-300">
+                      <span className="text-gray-500">3-step sell friction: </span>
+                      <span className="font-mono font-semibold text-amber-300">
+                        {frictionCost.threeStepPercent.toFixed(2)}%
+                      </span>
+                      <span className="text-gray-500">
+                        {' '}
+                        (+
+                        {(frictionCost.threeStepPercent - frictionCost.percent).toFixed(2)}
+                        %)
+                      </span>
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-gray-300">{frictionCost.message}</p>
+                  <p className="text-[11px] text-gray-500">
+                    Formula: total charges / capital deployed * 100
                   </p>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </div>
 
             <div className="flex gap-4">
               <button
@@ -706,76 +937,18 @@ export default function Entry() {
                 Back
               </button>
               <button
-                onClick={() => setStep(3)}
-                className="flex-[2] px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold transition-all shadow-xl shadow-blue-600/20"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className={`flex-2 px-6 py-4 rounded-2xl font-bold transition-all shadow-xl ${
+                  canSubmit
+                    ? 'bg-green-600 hover:bg-green-500 text-white shadow-green-600/20'
+                    : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                }`}
               >
-                Next: Checklist
+                Execute Trade
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Step 3: Checklist */}
-      {step === 3 && (
-        <div className="max-w-2xl mx-auto space-y-8">
-          <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-8">
-            <div>
-              <h2 className="text-xl font-semibold">Final Entry Checklist</h2>
-              <p className="text-sm text-gray-500">Confirm all technical requirements are met before execution.</p>
-            </div>
-
-            <div className="space-y-4">
-              {Object.entries(checklist).map(([key, value]) => (
-                <button
-                  key={key}
-                  onClick={() => setChecklist({ ...checklist, [key]: !value })}
-                  className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${
-                    value ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-[#0a0a0b] border-white/10 text-gray-400 hover:border-white/20'
-                  }`}
-                >
-                  <span className="font-medium capitalize">{key.replace(/([A-Z])/g, ' ₹1')}</span>
-                  {value ? <CheckCircle2 size={20} /> : <div className="w-5 h-5 rounded-full border-2 border-white/10" />}
-                </button>
-              ))}
-            </div>
-
-            <div className="pt-4 space-y-4">
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Entry notes, psychological state, etc."
-                className="w-full bg-[#0a0a0b] border border-white/10 rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all min-h-[120px]"
-              />
-
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setStep(2)}
-                  className="flex-1 px-6 py-4 bg-white/5 hover:bg-white/10 text-gray-300 rounded-2xl font-bold transition-all"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  className={`flex-[2] px-6 py-4 rounded-2xl font-bold transition-all shadow-xl ${
-                    canSubmit 
-                      ? 'bg-green-600 hover:bg-green-500 text-white shadow-green-600/20' 
-                      : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  Execute Trade
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {!isChecklistComplete && (
-            <p className="text-center text-sm text-gray-500">Complete all checklist items to enable execution.</p>
-          )}
-          {scoringData.percentage < 60 && (
-            <p className="text-center text-sm text-red-400 font-bold">Setup quality too low to execute.</p>
-          )}
         </div>
       )}
     </div>

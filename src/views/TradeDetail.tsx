@@ -153,7 +153,7 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
                     {Object.entries(trade.checklist).map(([key, val]) => (
                       <div key={key} className="flex items-center gap-2 text-[10px] font-medium text-gray-400">
                         <div className={`w-3 h-3 rounded-full ${val ? 'bg-green-500' : 'bg-gray-700'}`} />
-                        <span className="capitalize">{key.replace(/([A-Z])/g, ' ₹1')}</span>
+                        <span>{key}</span>
                       </div>
                     ))}
                   </div>
@@ -187,7 +187,7 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
                     <div className="text-[10px] text-gray-500 font-bold uppercase mb-1">Size</div>
                     {trade.status === 'Active' ? (
                        <div className="flex items-center gap-1 text-lg font-bold">
-                         <input type="number" value={positionSize} onChange={e => setPositionSize(parseFloat(e.target.value))} className="w-full bg-transparent outline-none text-white" /> 
+                         <input type="number" value={positionSize || '_'} onChange={e => setPositionSize(parseFloat(e.target.value))} className="w-full bg-transparent outline-none text-white" /> 
                          <span className="text-xs font-normal">Shares</span>
                        </div>
                     ) : (

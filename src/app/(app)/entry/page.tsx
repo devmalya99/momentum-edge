@@ -1,7 +1,7 @@
 'use client';
 
-import Entry from '@/views/Entry';
+import EntryWorkspace from '@/features/entry/EntryWorkspace';
 
 export default function EntryPage() {
-  return <Entry />;
+  return <EntryWorkspace />;
 }

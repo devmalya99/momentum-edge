@@ -4,7 +4,6 @@ import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 export interface Rule {
   id: string;
   name: string;
-  category: 'Structure' | 'Trend' | 'Confirmation' | 'Context';
   maxScore: number;
   enabled: boolean;
 }
@@ -31,13 +30,14 @@ export interface Trade {
   verdict: 'A+' | 'A' | 'B' | 'Avoid';
   
   // Checklist
-  checklist: {
-    priorRally: boolean;
-    tightBase: boolean;
-    breakoutLevel: boolean;
-    volumeConfirmation: boolean;
-    emaAlignment: boolean;
-    relativeStrength: boolean;
+  checklist: Record<string, boolean>;
+  mtf?: {
+    enabled: boolean;
+    leverage: number;
+    plannedHoldDays: number;
+    annualInterestRate: number;
+    pledgeCharge: number;
+    unpledgeCharge: number;
   };
 
   // Management State (for Leader trades)
@@ -69,7 +69,10 @@ export interface Settings {
   id: 'global';
   totalCapital: number;
   riskPerTradePercent: number;
+  mtfRate?: number;
   tradeTypes: TradeTypeConfig[];
+  checklistCriteria: string[];
+  checklistPassingScore: number;
   networthAssets: NetworthAsset[];
   /** Borrowed margin currently used for trading; subtracted in networth view. */
   brokerMarginUsed: number;
