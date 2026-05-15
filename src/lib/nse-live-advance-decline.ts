@@ -10,6 +10,7 @@ export type ParsedLiveAd = {
   nseTimestampIso: string | null;
 };
 
+
 function formatDateIst(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kolkata',

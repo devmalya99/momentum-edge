@@ -22,9 +22,10 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceArea,
   ReferenceLine,
 } from 'recharts';
-import { format, parseISO, subMonths } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import TradingViewWidget from '@/components/TradingViewWidget';
 import LargeDealsPanel from '@/components/market/LargeDealsPanel';
 import { NSE_MONTHLY_LOOKBACK } from '@/lib/nse-month-keys';
@@ -75,9 +76,6 @@ type ChartPoint = {
   neonOnlyDay?: boolean;
   /** Neon snapshot A/D for this session date (when loaded for the selected chart year). */
   neonRatio: number | null;
-  /** Neon A/D for the same calendar day one month earlier. */
-  oldMonthNeonRatio: number | null;
-  oldMonthNeonRatioPlot: number | null;
 };
 
 type NeonDailyRow = {
@@ -460,10 +458,7 @@ export default function MarketView() {
     return max;
   }, [historyMonths]);
 
-  type ChartBaseRow = Omit<
-    ChartPoint,
-    'ratioPlot' | 'neonRatio' | 'oldMonthNeonRatio' | 'oldMonthNeonRatioPlot'
-  >;
+  type ChartBaseRow = Omit<ChartPoint, 'ratioPlot' | 'neonRatio'>;
 
   const chartBase = useMemo(() => {
     const nseRows: ChartBaseRow[] = [];
@@ -538,21 +533,10 @@ export default function MarketView() {
         ...p,
         ratioPlot: smoothedNse[i] ?? null,
         neonRatio: null,
-        oldMonthNeonRatio: null,
-        oldMonthNeonRatioPlot: null,
       }));
     }
 
     const neonVals = chartBase.map((p) => neonByDate.get(p.tradeDate) ?? null);
-    const oldMonthVals = chartBase.map((p) => {
-      try {
-        const prevKey = format(subMonths(parseISO(p.tradeDate), 1), 'yyyy-MM-dd');
-        return neonByDate.get(prevKey) ?? null;
-      } catch {
-        return null;
-      }
-    });
-    const oldMonthSmoothed = trailingSessionAvgNullable(oldMonthVals, w);
 
     const primarySessions = chartBase.map((p, i) =>
       primarySessionAdRatio(
@@ -570,8 +554,6 @@ export default function MarketView() {
       ...p,
       ratioPlot: smoothedPrimary[i] ?? null,
       neonRatio: neonVals[i],
-      oldMonthNeonRatio: oldMonthVals[i],
-      oldMonthNeonRatioPlot: oldMonthSmoothed[i],
     }));
   }, [chartBase, smoothPeriod, chartYear, neonByDate, neonMonthPrefixes, maxNseTradeDate]);
 
@@ -723,9 +705,6 @@ export default function MarketView() {
 
   const busy = liveLoading || historyLoading;
   const refreshSpinning = busy || neonLoading;
-
-  /** Prior-month reference line (teal); primary A/D already blends NSE + Neon in `ratioPlot`. */
-  const showPriorMonthNeonLine = neonByDate.size > 0;
 
   const chartUsesNeonBlend =
     neonByDate.size > 0 && (chartYear !== 'rolling' ? neonMonthPrefixes.size > 0 : true);
@@ -1073,11 +1052,8 @@ export default function MarketView() {
               {chartYear !== 'rolling' ? (
                 <>
                   {' '}
-                  For any month that has Neon daily snapshots, the{' '}
-                  <span className="text-blue-300/90">blue A/D line</span> uses those values (same
-                  smoothing as NSE) so the series stays continuous when NSE monthly lags. The dashed{' '}
-                  <span className="text-teal-200/90">teal</span> line is prior-month same calendar day
-                  (Neon) for context.
+                  For any month that has Neon daily snapshots, the A/D line uses those values (same
+                  smoothing as NSE) so the series stays continuous when NSE monthly lags.
                 </>
               ) : neonRows.length > 0 ? (
                 <>
@@ -1140,7 +1116,7 @@ export default function MarketView() {
                 {' '}
                 {chartYear === 'rolling'
                   ? 'Neon extends the blue line after the last NSE session (including the current IST month).'
-                  : 'Months with Neon data blend into the blue line so March flows into April without a separate overlay.'}
+                  : 'Months with Neon data use stored dailies so the series stays continuous when NSE monthly lags.'}
               </>
             ) : null}
           </p>
@@ -1198,7 +1174,7 @@ export default function MarketView() {
 
         {neonError ? (
           <div className="text-xs text-amber-400/90 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-            Neon A/D overlay: {neonError}
+            Neon A/D: {neonError}
           </div>
         ) : null}
 
@@ -1236,6 +1212,14 @@ export default function MarketView() {
                   domain={['auto', 'auto']}
                   tickFormatter={(v) => (typeof v === 'number' ? v.toFixed(1) : v)}
                 />
+                <ReferenceArea
+                  y1={0.8}
+                  y2={1.4}
+                  fill="#ef4444"
+                  fillOpacity={0.14}
+                  strokeOpacity={0}
+                  ifOverflow="visible"
+                />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
@@ -1245,19 +1229,6 @@ export default function MarketView() {
                       typeof plotVal === 'number' && Number.isFinite(plotVal)
                         ? plotVal.toFixed(2)
                         : '—';
-                    const nnTip = toFiniteNumber(p.neonRatio);
-                    const primRaw = primarySessionAdRatio(
-                      p.tradeDate,
-                      p.ratio,
-                      p.neonRatio,
-                      chartYear,
-                      neonMonthPrefixes,
-                      maxNseTradeDate,
-                    );
-                    const blendedPrimary =
-                      nnTip != null &&
-                      primRaw != null &&
-                      Math.abs(primRaw - nnTip) < 1e-8;
                     const lineLabel = chartUsesNeonBlend
                       ? smoothPeriod <= 1
                         ? 'Session A/D (NSE + Neon)'
@@ -1265,8 +1236,6 @@ export default function MarketView() {
                       : smoothPeriod <= 1
                         ? 'Session A/D (NSE)'
                         : `${smoothPeriod}-session avg (NSE)`;
-                    const fmt = (n: number | null | undefined) =>
-                      n != null && Number.isFinite(n) ? n.toFixed(2) : '—';
                     return (
                       <div
                         className="rounded-xl border border-white/10 bg-[#161618] px-3 py-2 text-xs shadow-xl"
@@ -1281,12 +1250,6 @@ export default function MarketView() {
                         <div className="font-semibold text-blue-300">
                           {lineLabel}: {plotText}
                         </div>
-                        {blendedPrimary ? (
-                          <div className="mt-1 text-[10px] text-gray-500">
-                            Primary uses Neon for this month when a stored daily exists (same value as
-                            blue line here).
-                          </div>
-                        ) : null}
                         {p.neonOnlyDay ? (
                           <div className="mt-1 text-[10px] text-amber-200/80">
                             NSE monthly has not published this session yet — point comes from Neon.
@@ -1296,19 +1259,6 @@ export default function MarketView() {
                           <div className="mt-1 text-gray-500">
                             Raw session (NSE):{' '}
                             {p.ratio != null && Number.isFinite(p.ratio) ? p.ratio.toFixed(2) : '—'}
-                          </div>
-                        ) : null}
-                        {showPriorMonthNeonLine ? (
-                          <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[11px]">
-                            <div className="text-gray-400">
-                              Neon (stored) raw: {fmt(p.neonRatio)}
-                            </div>
-                            <div className="text-teal-200/95">
-                              Prior month (Neon): {fmt(p.oldMonthNeonRatioPlot)}
-                              {smoothPeriod > 1 ? (
-                                <span className="text-gray-500"> raw {fmt(p.oldMonthNeonRatio)}</span>
-                              ) : null}
-                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -1344,23 +1294,6 @@ export default function MarketView() {
                   activeDot={{ r: 5 }}
                   connectNulls={false}
                 />
-                {showPriorMonthNeonLine ? (
-                  <Line
-                    type="monotone"
-                    dataKey="oldMonthNeonRatioPlot"
-                    name={
-                      smoothPeriod <= 1
-                        ? 'Prior month (Neon)'
-                        : `Prior month Neon (${smoothPeriod}-sess. avg)`
-                    }
-                    stroke="#2dd4bf"
-                    strokeWidth={1.75}
-                    strokeDasharray="6 4"
-                    dot={false}
-                    connectNulls={false}
-                    isAnimationActive={false}
-                  />
-                ) : null}
               </LineChart>
             </ResponsiveContainer>
           </div>

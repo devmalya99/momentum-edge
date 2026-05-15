@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { syncAdRatioTodayIfChanged } from '@/lib/ad-ratio-sync';
+import { syncAdRatioToday } from '@/lib/ad-ratio-sync';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -23,7 +23,7 @@ function authorize(request: Request): boolean {
 }
 
 async function runSnapshot(): Promise<NextResponse> {
-  const result = await syncAdRatioTodayIfChanged();
+  const result = await syncAdRatioToday({ force: true });
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error, detail: result.detail },

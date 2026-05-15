@@ -37,9 +37,12 @@ function areRatiosEqual(a: number | null, b: number | null): boolean {
 }
 
 /**
- * Fetches today's A/D from NSE and writes to Neon only when today's ratio changed.
+ * Fetches today's A/D from NSE and writes to Neon.
+ * @param options.force When true, always upserts (used by the daily cron snapshot).
  */
-export async function syncAdRatioTodayIfChanged(): Promise<SyncAdRatioTodayResult> {
+export async function syncAdRatioToday(
+  options?: { force?: boolean },
+): Promise<SyncAdRatioTodayResult> {
   if (!process.env.DATABASE_URL?.trim()) {
     return { ok: false, status: 503, error: 'DATABASE_URL is not configured' };
   }
@@ -65,7 +68,10 @@ export async function syncAdRatioTodayIfChanged(): Promise<SyncAdRatioTodayResul
 
   await ensureAdRatioDailyTable();
   const existing = await getAdRatioDailyByDate(parsed.tradeDateIst);
-  const shouldUpdate = !existing || !areRatiosEqual(existing.ad_ratio, parsed.adRatio);
+  const shouldUpdate =
+    options?.force === true ||
+    !existing ||
+    !areRatiosEqual(existing.ad_ratio, parsed.adRatio);
 
   if (shouldUpdate) {
     await upsertAdRatioDaily({
@@ -89,4 +95,9 @@ export async function syncAdRatioTodayIfChanged(): Promise<SyncAdRatioTodayResul
       ad_ratio: parsed.adRatio,
     },
   };
+}
+
+/** Fetches today's A/D from NSE and writes to Neon only when today's ratio changed. */
+export async function syncAdRatioTodayIfChanged(): Promise<SyncAdRatioTodayResult> {
+  return syncAdRatioToday();
 }
