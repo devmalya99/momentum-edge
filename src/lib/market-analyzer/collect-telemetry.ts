@@ -18,7 +18,13 @@ import {
   normalizeNeonAdRows,
   type NseMonthlyAdBlock,
 } from '@/lib/market-analyzer/build-ad-ratio-series';
+import type { MarketTechnicalApiResponse } from '@/features/market-technical/types';
 import type { RawMacroTelemetrySnapshot, RawTelemetrySnapshot, TargetIndex } from '@/types/marketAnalyzer';
+
+export type SharedMarketSlices = {
+  vixHistory: number[];
+  adHistory: Awaited<ReturnType<typeof fetchAdHistory>>;
+};
 
 function lastFinite<T extends number | null>(arr: T[]): number | null {
   for (let i = arr.length - 1; i >= 0; i--) {
@@ -122,29 +128,24 @@ export async function collectMacroTelemetry(): Promise<RawMacroTelemetrySnapshot
   };
 }
 
-/**
- * Parallel fetch of VIX, index technicals, and A/D history for one target index.
- */
-export async function collectMarketTelemetry(index: TargetIndex): Promise<RawTelemetrySnapshot> {
-  const symbol = nseSymbolForTargetIndex(index);
-  const chartType = chartTypeForTargetIndex(index);
+/** VIX + A/D history shared across all index score prefetches. */
+export async function fetchSharedMarketSlices(): Promise<SharedMarketSlices> {
   const minVix = ANALYZER_LOOKBACK.vixSessions;
-  const minPx = ANALYZER_LOOKBACK.indexCloseSessions;
-  const minAd = ANALYZER_LOOKBACK.adSessions;
-
-  const [vixData, technical, adHistory] = await Promise.all([
+  const [vixData, adHistory] = await Promise.all([
     fetchVixHistory({ sessions: Math.max(minVix + 5, 30) }),
-    fetchMarketTechnical({
-      kind: 'index',
-      symbol,
-      indexFlag: ANALYZER_LOOKBACK.technicalIndexFlag,
-      chartType,
-    }),
     fetchAdHistory(),
   ]);
-
   const vixHistory = vixData.points.map((p) => p.close).filter((c) => Number.isFinite(c));
   requireMinLength('VIX', vixHistory, minVix);
+  return { vixHistory, adHistory };
+}
+
+function buildTelemetryFromTechnical(
+  shared: SharedMarketSlices,
+  technical: MarketTechnicalApiResponse,
+): RawTelemetrySnapshot {
+  const minPx = ANALYZER_LOOKBACK.indexCloseSessions;
+  const minAd = ANALYZER_LOOKBACK.adSessions;
 
   const sortedBars = [...technical.bars].sort((a, b) => a.t - b.t);
   const closes = sortedBars.map((b) => b.c);
@@ -176,11 +177,15 @@ export async function collectMarketTelemetry(index: TargetIndex): Promise<RawTel
   const ema50History = alignEma(e50);
   const ema200History = alignEma(e200);
 
-  const adRatioHistory = buildAdRatioSeries(adHistory.months, adHistory.neonRows, 'rolling');
+  const adRatioHistory = buildAdRatioSeries(
+    shared.adHistory.months,
+    shared.adHistory.neonRows,
+    'rolling',
+  );
   requireMinLength('A/D ratio', adRatioHistory, minAd);
 
   return {
-    vixHistory,
+    vixHistory: shared.vixHistory,
     indexCloseHistory: closes,
     adRatioHistory,
     currentPrice,
@@ -197,4 +202,27 @@ export async function collectMarketTelemetry(index: TargetIndex): Promise<RawTel
       hist: macdHist,
     },
   };
+}
+
+export async function collectMarketTelemetryWithShared(
+  index: TargetIndex,
+  shared: SharedMarketSlices,
+): Promise<RawTelemetrySnapshot> {
+  const symbol = nseSymbolForTargetIndex(index);
+  const chartType = chartTypeForTargetIndex(index);
+  const technical = await fetchMarketTechnical({
+    kind: 'index',
+    symbol,
+    indexFlag: ANALYZER_LOOKBACK.technicalIndexFlag,
+    chartType,
+  });
+  return buildTelemetryFromTechnical(shared, technical);
+}
+
+/**
+ * Parallel fetch of VIX, index technicals, and A/D history for one target index.
+ */
+export async function collectMarketTelemetry(index: TargetIndex): Promise<RawTelemetrySnapshot> {
+  const shared = await fetchSharedMarketSlices();
+  return collectMarketTelemetryWithShared(index, shared);
 }

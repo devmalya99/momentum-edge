@@ -24,8 +24,8 @@ View your app in AI Studio: https://ai.studio/apps/081aa69c-ab54-49f3-8574-48a38
 For detailed information about the project, refer to these documents:
 
 - 📖 **[Features](./features.md)**: Explore the platform page-by-page (includes Market Analyzer dual-axis grading on Market View).
-- 🏗️ **[Architecture](./architecture.md)**: Deep dive into the tech stack, split analyzer APIs, and daily portfolio-exposure cache.
+- 🏗️ **[Architecture](./architecture.md)**: Deep dive into the tech stack, split analyzer APIs, daily portfolio-exposure cache, and 24h index score catalog (React Query).
 - 📋 **[Instruction & Workflow](./instruction.md)**: Technical setup and planning steps.
 - 🏅 **[Accomplishments](./accomplishments.md)**: Track our project milestones and latest victories.
 
-**Market Analyzer** (Market View): Requires `GEMINI_API_KEY` on the server. Portfolio exposure is computed once per IST day; index verdict and position size update per selected index.
+**Market Analyzer** (Market View): Requires `GEMINI_API_KEY` on the server. Portfolio exposure is computed once per IST day. The full index score catalog is precalculated and cached for **24 hours** (React Query + `localStorage` persist) so reloads and navigation do not re-call Gemini. Per-index desk read uses cache when fresh; otherwise one LLM call per index.

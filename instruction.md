@@ -26,6 +26,7 @@
 - Created `features.md` to serve as a user and developer functionality guide.
 - Developed `architecture.md` detailing the technical stack and folder structure.
 - Updated `accomplishments.md` and `README.md` to reflect the current high-performance state of the app.
+- Documented Market Analyzer **index score catalog**: 24h React Query cache, `localStorage` persist, position-size dropdown grouping, and Gemini cost controls (`architecture.md`, `features.md`).
 
 ### ✅ Step 6: Bug Fixing & UI Stability
 - **Fixed Kanban Drop Bug**: Resolved issue where trades couldn't be dropped into different columns in `PortfolioKanbanBoard`.

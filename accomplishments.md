@@ -34,7 +34,15 @@ This document tracks major technical milestones and feature implementations.
 - **Isolated A/D merge**: `build-ad-ratio-series.ts` copies Market View merge rules without refactoring legacy chart code.
 - **Separation of concerns**: `AnalysisDashboard` is props-only; `MarketView` orchestrates telemetry, daily exposure bootstrap, and `useMarketAnalyzer`.
 - **Session-hardened APIs**: Analyzer routes share `api-guard.ts` (cookies + same-origin + `X-Requested-With`).
-- **Test coverage**: Vitest suites for `dataSynthesizer`, `build-ad-ratio-series`, `index-catalog`, and `useMarketAnalyzer` (portfolio cache + index analysis).
+- **Test coverage**: Vitest suites for `dataSynthesizer`, `build-ad-ratio-series`, `index-catalog`, `index-score-visual`, and `useMarketAnalyzer` (portfolio cache + index analysis).
+
+## ✅ Phase 9: Index Score Catalog (AI cost control)
+- **Precalculated catalog**: Background scoring for 70+ indices via `prefetch-index-scores.ts` with shared VIX/A/D telemetry and concurrency limit of 2.
+- **24-hour React Query cache**: `useIndexScoreCatalogQuery` — no refetch on mount, focus, or reconnect; `retry: false` to avoid duplicate Gemini calls.
+- **Persisted hydration**: `index-scores-persist.ts` writes to `localStorage` so page refresh does not re-trigger the full catalog batch.
+- **Position-size dropdown**: `IndexScoreSelect` groups indices by sizing tier (momentum first) with color-coded status dots.
+- **Analyse Market short-circuit**: Uses cached verdict + position size when the index entry is fresh, skipping a per-click LLM call.
+- **Removed legacy panel**: NIFTY 500 `NseIndexDetailsPanel` and `/api/nse/index-details` retired from Market View.
 
 ## ✅ Phase 5: Documentation & Knowledge Base
 - **Comprehensive Feature Analysis**: Developed `features.md` for page-by-page functionality mapping.

@@ -36,25 +36,28 @@ This document provides a comprehensive list of features implemented in the Momen
 - **Historical Breadth**: Smoothed plotting of A/D trends across weeks and months.
 - **Large Deals Panel**: Monitor significant block and bulk transactions in real-time.
 - **India VIX Tracker**: Session history and volatility regime context for risk sizing.
-- **NSE Index Details & Technicals**: Benchmark index panels with OHLC, EMA stack, RSI, and MACD (e.g. NIFTY 50 kline board).
-- **Market Analyzer**: AI desk mandate with dual-axis grading — daily portfolio exposure plus per-index position sizing.
+- **NIFTY 50 Technicals**: Kline board with EMA stack, RSI, MACD, and indicator snapshot cards (`MarketTechnicalKlineBoard`).
+- **Market Analyzer**: AI desk mandate with dual-axis grading — daily portfolio exposure plus per-index position sizing, with a **24-hour precalculated index score catalog** for the dropdown.
 
 ### Market Analyzer (Market View)
 
-The analyzer uses a **top-down discount model** with two independent calculations. Portfolio exposure is loaded once per IST calendar day; changing the index only re-runs the index-specific read.
+The analyzer uses a **top-down discount model** with two independent calculations. Portfolio exposure is loaded once per IST calendar day. The **index score catalog** is precalculated for all catalog indices and cached for **24 hours** to minimize Gemini cost.
 
-**On page load:** `ensurePortfolioExposure()` checks `localStorage` for today’s macro result; on miss, fetches VIX, A/D, and Nifty 500 telemetry → `synthesizeMacroPayload` → `POST /api/market-analyzer/portfolio-exposure`.
+**On page load (macro):** `ensurePortfolioExposure()` checks `localStorage` for today’s macro result; on miss, fetches VIX, A/D, and Nifty 500 telemetry → `synthesizeMacroPayload` → `POST /api/market-analyzer/portfolio-exposure`.
 
-**On Analyse Market:** Collects telemetry for the selected index → `synthesizePayload` → `POST /api/market-analyzer` (reuses cached exposure; does not recalculate it).
+**On page load (index catalog):** `useIndexScoreCatalogQuery()` hydrates from React Query + `localStorage` persistence. If the full catalog is fresh (< 24h), **no AI calls**. Otherwise `prefetchIndexScores()` runs in the background (shared VIX/A/D fetch, two concurrent index analyses) and updates the dropdown as each index completes.
 
-- **Index selection**: 70+ NSE indices in grouped dropdown — broad, sectoral, thematic, and strategy/factor indices (`index-catalog.ts`).
+**On Analyse Market:** If the selected index already has a fresh catalog entry, shows cached verdict + position size (no Gemini). Otherwise collects telemetry → `synthesizePayload` → `POST /api/market-analyzer`. Does not recalculate portfolio exposure or the full catalog.
+
+- **Index selection (`IndexScoreSelect`)**: Custom dropdown grouped by **position size score** (25% momentum tier at top → 0% avoid at bottom), not by broad/sectoral category. Each row has a **color-coded dot** (green = strong momentum, red = avoid, gray pulse = still scoring). Footer shows `scored/total` and cache age.
 - **Portfolio exposure (macro, daily)**: Shown in a dedicated banner above position size — same value regardless of which index is selected.
   - Scale: 0% | 10% | 30% | 50% | 70% | 100% | 125%
   - Driven by VIX, A/D, Nifty 500 health, calendar risk, and geopolitical context only.
 - **Per-index outputs** (updates when index or Analyse Market changes):
   - **Verdict**: Breakdown | Grinding | Transition | Stage 2 | Momentum | Extreme Alignment
   - **Position size**: 0% | 8% | 12% | 15% | 20% | 25%
-  - **Desk rationale**: 2–3 conversational sentences on the selected index (no bullet-dump tone)
+  - **Desk rationale**: 2–3 conversational sentences on the selected index (no bullet-dump tone); cached runs use a short note that scores refresh every 24h
+- **Caching**: React Query `staleTime` / `gcTime` (24h / 48h), `refetchOnMount` and window-focus refetch disabled, `localStorage` persist for reload survival. Global Market View refresh does **not** invalidate the catalog.
 - **Token efficiency**: `CompressedPayload` (index) and `CompressedMacroPayload` (macro) built in `dataSynthesizer.ts` on the main thread.
 - **Auth**: Logged-in session required; same-origin + `X-Requested-With` on both analyzer API routes.
 

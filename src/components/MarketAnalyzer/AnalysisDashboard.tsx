@@ -6,11 +6,8 @@
  */
 
 import { BarChart3, Loader2 } from 'lucide-react';
-import {
-  INDEX_CATEGORIES,
-  INDEX_CATEGORY_LABELS,
-  indexesByCategory,
-} from '@/lib/market-analyzer/index-config';
+import { IndexScoreSelect } from '@/components/MarketAnalyzer/IndexScoreSelect';
+import { useIndexScoreCatalogQuery } from '@/features/market-analyzer/query/use-index-score-catalog-query';
 import type { IndexAnalyzerResult, MarketVerdict, TargetIndex } from '@/types/marketAnalyzer';
 import type { PortfolioExposureState } from '@/hooks/useMarketAnalyzer';
 
@@ -56,6 +53,14 @@ export function AnalysisDashboard({
   portfolioLoading,
   portfolioError,
 }: AnalysisDashboardProps) {
+  const {
+    scores,
+    groups,
+    warming: scoresWarming,
+    scoredCount,
+    totalIndexes,
+  } = useIndexScoreCatalogQuery();
+
   const verdictStyle = indexResult ? VERDICT_STYLES[indexResult.verdict] : '';
   const showResults = indexResult || portfolioExposure || portfolioLoading;
 
@@ -76,23 +81,16 @@ export function AnalysisDashboard({
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <span className="font-bold uppercase tracking-wide whitespace-nowrap">Index</span>
-            <select
-              value={selectedIndex}
-              onChange={(e) => onIndexChange(e.target.value as TargetIndex)}
+            <IndexScoreSelect
+              selectedIndex={selectedIndex}
+              onSelect={onIndexChange}
               disabled={loading}
-              aria-label="Target index for market analysis"
-              className="cursor-pointer rounded-xl border border-white/10 bg-[#0a0a0b] px-3 py-2.5 text-sm font-semibold text-gray-200 outline-none transition-colors hover:border-white/20 focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 min-w-52 max-w-xs disabled:opacity-50"
-            >
-              {INDEX_CATEGORIES.map((category) => (
-                <optgroup key={category} label={INDEX_CATEGORY_LABELS[category]}>
-                  {indexesByCategory(category).map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.nseSymbol}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              groups={groups}
+              scores={scores}
+              warming={scoresWarming}
+              scoredCount={scoredCount}
+              totalIndexes={totalIndexes}
+            />
           </label>
 
           <button

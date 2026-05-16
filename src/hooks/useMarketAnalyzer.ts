@@ -5,6 +5,13 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  isIndexScoresCatalogFresh,
+  persistIndexScoresCatalog,
+} from '@/features/market-analyzer/query/index-scores-persist';
+import { indexScoresCatalogQueryKey } from '@/features/market-analyzer/query/use-index-score-catalog-query';
+import type { IndexScoresCatalog } from '@/features/market-analyzer/types/index-scores';
 import { collectMacroTelemetry } from '@/lib/market-analyzer/collect-telemetry';
 import {
   istDateKey,
@@ -32,6 +39,7 @@ export type PortfolioExposureState = {
 };
 
 export function useMarketAnalyzer() {
+  const queryClient = useQueryClient();
   const [indexStatus, setIndexStatus] = useState<MarketAnalyzerStatus>('idle');
   const [indexResult, setIndexResult] = useState<IndexAnalyzerResult | null>(null);
   const [indexError, setIndexError] = useState<string | null>(null);
@@ -138,6 +146,18 @@ export function useMarketAnalyzer() {
       try {
         await ensurePortfolioExposure();
 
+        const catalog = queryClient.getQueryData<IndexScoresCatalog>(indexScoresCatalogQueryKey);
+        const cached = catalog?.scores[index];
+        if (catalog && cached && isIndexScoresCatalogFresh(catalog.refreshedAt)) {
+          setIndexResult({
+            verdict: cached.verdict,
+            positionSizingGuidance: cached.positionSizingGuidance,
+            explanation: `Cached desk view for this index (${cached.positionSizingGuidance}, ${cached.verdict}). Catalog scores refresh once every 24 hours to limit AI cost.`,
+          });
+          setIndexStatus('success');
+          return;
+        }
+
         const payload = synthesizePayload(index, telemetry);
 
         const res = await fetch('/api/market-analyzer', {
@@ -166,6 +186,19 @@ export function useMarketAnalyzer() {
         }
 
         const validated = indexAnalyzerResultSchema.parse(json);
+        const nextCatalog: IndexScoresCatalog = {
+          refreshedAt: catalog?.refreshedAt ?? new Date().toISOString(),
+          scores: {
+            ...(catalog?.scores ?? {}),
+            [index]: {
+              positionSizingGuidance: validated.positionSizingGuidance,
+              verdict: validated.verdict,
+              fetchedAt: new Date().toISOString(),
+            },
+          },
+        };
+        queryClient.setQueryData<IndexScoresCatalog>(indexScoresCatalogQueryKey, nextCatalog);
+        persistIndexScoresCatalog(nextCatalog);
         setIndexResult(validated);
         setIndexStatus('success');
       } catch (err: unknown) {
@@ -174,7 +207,7 @@ export function useMarketAnalyzer() {
         setIndexStatus('error');
       }
     },
-    [ensurePortfolioExposure],
+    [ensurePortfolioExposure, queryClient],
   );
 
   return {
