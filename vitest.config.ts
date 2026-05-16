@@ -16,6 +16,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@/position-analysis': path.resolve(dirname, './src/feature/position-analysis'),
       '@': path.resolve(dirname, './src'),
     },
   },

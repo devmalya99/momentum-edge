@@ -38,8 +38,9 @@ This document outlines the technical architecture, technology stack, and directo
 - `src/hooks`: Custom React hooks for shared logic (Live prices, MTF calculations, Market Analyzer orchestration).
 - `src/types`: Shared TypeScript contracts (e.g. `marketAnalyzer.ts` — payload scales and Zod schemas).
 - `src/lib`: Shared utility libraries (NSE clients, formatters, database clients).
-  - `src/lib/market-analyzer/`: Market Analyzer support — tunable constants, index symbol map, A/D series builder, telemetry collection.
-  - `src/lib/ai/market-analyzer-prompt.ts`: Gemini system prompt for desk-style market reads.
+  - `src/lib/market-analyzer/`: Constants, index catalog, A/D series builder, `collect-telemetry.ts` (index + macro), `portfolio-exposure-cache.ts` (IST day cache), `api-guard.ts`.
+  - `src/lib/ai/market-analyzer-macro-prompt.ts`: Portfolio exposure only (index-blind Calculation B).
+  - `src/lib/ai/market-analyzer-index-prompt.ts`: Verdict, position size, and desk rationale (Calculation A).
 - `src/utils`: Mathematical and business logic utilities (Risk calculations, Scoring verdicts, `dataSynthesizer.ts` for token compression).
 - `src/components/MarketAnalyzer/`: Presentation-only UI for analyzer results (`AnalysisDashboard.tsx`).
 - `src/db`: Database schema definitions and adapter logic.
@@ -51,22 +52,32 @@ This document outlines the technical architecture, technology stack, and directo
 2. **P&L Processing**: `.xlsx` Upload → Client-side Parser → IndexedDB Storage + Server Sync → Custom Analytics View.
 3. **Trade Logging**: Setup Analysis → Rule Scoring → Risk Validation → Database Persistence (Prisma).
 4. **Networth Balancing**: Manual Entries + Live NSE Quotes → Aggregator → Balance Sheet Logic → Total Networth display.
-5. **Market Analyzer** (Market View): User selects index → `collectMarketTelemetry` (VIX, index OHLC/EMAs, A/D, RSI/MACD) → `dataSynthesizer.synthesizePayload` (main-thread clubbing & EMA deltas) → `POST /api/market-analyzer` (session + same-origin) → Gemini → verdict, position size %, equity exposure %, and desk explanation rendered in `AnalysisDashboard`.
+5. **Market Analyzer** (Market View): Two parallel tracks — **daily macro exposure** (index-blind, cached) and **per-index desk read** (verdict + position size + rationale).
 
 ### Market Analyzer pipeline (detail)
 
 ```text
 MarketView (orchestrator)
-  → collect-telemetry.ts     … parallel NSE / Neon fetches
-  → build-ad-ratio-series.ts … isolated A/D merge (chart code untouched)
-  → dataSynthesizer.ts      … clubDays, EMA % deltas, calendar flags
-  → useMarketAnalyzer.ts     … POST + result state
-  → AnalysisDashboard.tsx    … props-only UI
+  On mount:
+    → portfolio-exposure-cache.ts  … read localStorage (IST date key)
+    → collectMacroTelemetry()      … VIX + A/D + Nifty 500 only
+    → synthesizeMacroPayload()
+    → POST /api/market-analyzer/portfolio-exposure
+    → write cache for the day
 
-/api/market-analyzer         … Zod in/out, Gemini flash-lite, JSON-only response
+  On Analyse Market (index change does NOT refetch exposure):
+    → collectMarketTelemetry(idx)  … index OHLC/EMAs + shared VIX/A/D
+    → synthesizePayload(idx)
+    → POST /api/market-analyzer    … verdict + positionSizingGuidance + explanation
+
+  → useMarketAnalyzer.ts           … split state: portfolioExposure | indexResult
+  → AnalysisDashboard.tsx          … exposure banner above position size row
+
+/api/market-analyzer/portfolio-exposure  … macro Zod in/out → equityExposure + summary
+/api/market-analyzer                     … index Zod in/out → verdict + sizing + explanation
 ```
 
-**Design constraints:** No Web Workers; no per-index client scoring (LLM + prompt only); tunable lookbacks in `src/lib/market-analyzer/constants.ts`. Supported indices: NIFTY 50, NIFTY 500, NIFTY METAL, NIFTY PHARMA (uniform symbol map in `index-config.ts`).
+**Design constraints:** Portfolio exposure must not vary by selected index; one LLM call per IST day unless cache cleared. No Web Workers; no client-side verdict scoring (LLM + prompts only). Tunable lookbacks in `constants.ts`. Index universe in `index-catalog.ts`, resolved via `index-config.ts`.
 
 Folder planning :
 when building a new feature use the feature folder

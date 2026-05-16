@@ -286,11 +286,15 @@ export default function MarketView() {
   const [analyzerCollectError, setAnalyzerCollectError] = useState<string | null>(null);
   const [analyzerBusy, setAnalyzerBusy] = useState(false);
   const {
-    loading: analyzerLoading,
-    error: analyzerError,
-    result: analyzerResult,
-    executeAnalysis,
-    reset: resetAnalyzer,
+    indexLoading: analyzerLoading,
+    indexError: analyzerError,
+    indexResult: analyzerResult,
+    executeIndexAnalysis,
+    resetIndexAnalysis,
+    portfolioExposure,
+    portfolioLoading,
+    portfolioError,
+    ensurePortfolioExposure,
   } = useMarketAnalyzer();
   const [tradingHolidays, setTradingHolidays] = useState<Holiday[]>([]);
   const [holidaysLoading, setHolidaysLoading] = useState(true);
@@ -728,12 +732,16 @@ export default function MarketView() {
   const busy = liveLoading || historyLoading;
   const refreshSpinning = busy || neonLoading;
 
+  useEffect(() => {
+    void ensurePortfolioExposure();
+  }, [ensurePortfolioExposure]);
+
   const handleAnalyzeMarket = useCallback(async () => {
     setAnalyzerCollectError(null);
     setAnalyzerBusy(true);
     try {
       const telemetry = await collectMarketTelemetry(analyzerIndex);
-      await executeAnalysis(analyzerIndex, telemetry);
+      await executeIndexAnalysis(analyzerIndex, telemetry);
     } catch (err: unknown) {
       console.error('[MarketView] analyze market:', err);
       const message = err instanceof Error ? err.message : 'Failed to collect market telemetry.';
@@ -741,7 +749,7 @@ export default function MarketView() {
     } finally {
       setAnalyzerBusy(false);
     }
-  }, [analyzerIndex, executeAnalysis]);
+  }, [analyzerIndex, executeIndexAnalysis]);
 
   const chartUsesNeonBlend =
     neonByDate.size > 0 && (chartYear !== 'rolling' ? neonMonthPrefixes.size > 0 : true);
@@ -1072,12 +1080,15 @@ export default function MarketView() {
         onIndexChange={(index) => {
           setAnalyzerIndex(index);
           setAnalyzerCollectError(null);
-          resetAnalyzer();
+          resetIndexAnalysis();
         }}
         onAnalyze={() => void handleAnalyzeMarket()}
         loading={analyzerBusy || analyzerLoading}
         error={analyzerCollectError ?? analyzerError}
-        result={analyzerResult}
+        indexResult={analyzerResult}
+        portfolioExposure={portfolioExposure}
+        portfolioLoading={portfolioLoading}
+        portfolioError={portfolioError}
       />
 
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">

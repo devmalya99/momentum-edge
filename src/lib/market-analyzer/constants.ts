@@ -21,13 +21,14 @@ export const ANALYZER_LOOKBACK = {
 } as const;
 
 export const MARKET_VERDICTS = [
-  'Calm',
-  'Breeze',
-  'Gale',
-  'Storm',
-  'Hurricane',
+  'Breakdown',
+  'Grinding',
+  'Transition',
+  'Stage 2',
+  'Momentum',
+  'Extreme Alignment',
 ] as const;
 
 export const POSITION_SIZE_SCALE = ['0%', '8%', '12%', '15%', '20%', '25%'] as const;
 
-export const EQUITY_EXPOSURE_SCALE = ['5%', '30%', '50%', '70%', '100%', '120%'] as const;
+export const EQUITY_EXPOSURE_SCALE = ['0%', '10%', '30%', '50%', '70%', '100%', '125%'] as const;

@@ -1,28 +1,52 @@
 /**
- * Uniform NSE symbol mapping for all analyzer target indices.
- * Adjust labels here only if NSE `getGraphChart` type strings differ.
+ * Uniform NSE symbol resolution for Market Analyzer target indices.
  */
 
+import {
+  getIndexEntry,
+  INDEX_CATEGORIES,
+  INDEX_CATEGORY_LABELS,
+  indexesByCategory,
+  isTargetIndexId,
+  MARKET_ANALYZER_INDEXES,
+  type IndexCategory,
+  type TargetIndexId,
+} from '@/lib/market-analyzer/index-catalog';
 import type { TargetIndex } from '@/types/marketAnalyzer';
 
-export const TARGET_INDEX_OPTIONS: readonly TargetIndex[] = [
-  'NIFTY_50',
-  'NIFTY_500',
-  'NIFTY_METAL',
-  'NIFTY_PHARMA',
-] as const;
-
-const NSE_SYMBOL_BY_INDEX: Record<TargetIndex, string> = {
-  NIFTY_50: 'NIFTY 50',
-  NIFTY_500: 'NIFTY 500',
-  NIFTY_METAL: 'NIFTY METAL',
-  NIFTY_PHARMA: 'NIFTY PHARMA',
+export {
+  INDEX_CATEGORIES,
+  INDEX_CATEGORY_LABELS,
+  indexesByCategory,
+  isTargetIndexId,
+  MARKET_ANALYZER_INDEXES,
+  type IndexCategory,
+  type TargetIndexId,
 };
 
+/** @deprecated Use MARKET_ANALYZER_INDEXES — kept for imports that expect TARGET_INDEX_OPTIONS */
+export const TARGET_INDEX_OPTIONS: readonly TargetIndex[] = MARKET_ANALYZER_INDEXES.map(
+  (e) => e.id,
+) as TargetIndex[];
+
 export function nseSymbolForTargetIndex(index: TargetIndex): string {
-  return NSE_SYMBOL_BY_INDEX[index];
+  const row = getIndexEntry(index);
+  if (!row) {
+    throw new Error(`Unknown Market Analyzer index: ${index}`);
+  }
+  return row.nseSymbol;
 }
 
+
 export function targetIndexLabel(index: TargetIndex): string {
-  return NSE_SYMBOL_BY_INDEX[index];
+  return nseSymbolForTargetIndex(index);
+}
+
+/** NSE `getGraphChart` short key when set in catalog (skips 404 on long name). */
+export function chartTypeForTargetIndex(index: TargetIndex): string | undefined {
+  return getIndexEntry(index)?.chartType;
+}
+
+export function defaultTargetIndex(): TargetIndex {
+  return 'NIFTY_50';
 }

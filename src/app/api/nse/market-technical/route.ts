@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getNseIndiaClient } from '@/lib/nse-india-singleton';
+import { fetchIndexGraphChartPayload } from '@/lib/nse-index-graph-chart';
 import { indexGraphChartPayloadToDailyBars } from '@/lib/nse-index-graph-bars';
 import { flattenNseEquityHistoricalChunks } from '@/lib/nse-equity-historical-kline';
 import { buildMarketTechnicalSnapshot } from '@/features/market-technical/helper/technical-snapshot';
@@ -44,10 +45,13 @@ export async function GET(request: Request) {
     if (kind === 'index') {
       const flagRaw = searchParams.get('flag')?.trim().toUpperCase() ?? '5Y';
       const flag = INDEX_FLAGS.has(flagRaw) ? flagRaw : '5Y';
-      const path =
-        `/api/NextApi/apiClient?functionName=getGraphChart` +
-        `&type=${encodeURIComponent(symbol)}&flag=${encodeURIComponent(flag)}`;
-      const raw = await client.getDataByEndpoint(path);
+      const chartTypeHint = searchParams.get('chartType')?.trim() || undefined;
+      const { payload: raw } = await fetchIndexGraphChartPayload(
+        client,
+        symbol,
+        flag,
+        chartTypeHint,
+      );
       bars = indexGraphChartPayloadToDailyBars(raw);
       const { wire, snapshot } = buildMarketTechnicalSnapshot(bars);
       const body: MarketTechnicalApiResponse = {

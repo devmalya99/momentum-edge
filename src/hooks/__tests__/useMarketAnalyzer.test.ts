@@ -2,13 +2,37 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useMarketAnalyzer } from '@/hooks/useMarketAnalyzer';
-import type { AnalyzerResult, RawTelemetrySnapshot } from '@/types/marketAnalyzer';
+import type { IndexAnalyzerResult, RawMacroTelemetrySnapshot, RawTelemetrySnapshot } from '@/types/marketAnalyzer';
 
-const VALID_RESULT: AnalyzerResult = {
-  verdict: 'Breeze',
+vi.mock('@/lib/market-analyzer/collect-telemetry', () => ({
+  collectMacroTelemetry: vi.fn(),
+}));
+
+import { collectMacroTelemetry } from '@/lib/market-analyzer/collect-telemetry';
+
+const MACRO_TELEMETRY: RawMacroTelemetrySnapshot = {
+  vixHistory: Array.from({ length: 22 }, () => 15),
+  adRatioHistory: Array.from({ length: 33 }, () => 1.2),
+  nifty500CloseHistory: Array.from({ length: 44 }, () => 22_000),
+  nifty500Ema20History: Array.from({ length: 44 }, () => 22_000),
+  nifty500Ema50History: Array.from({ length: 44 }, () => 21_900),
+  nifty500Ema200History: Array.from({ length: 44 }, () => 21_500),
+  nifty500CurrentPrice: 22_100,
+  nifty500CurrentEma20: 22_000,
+  nifty500CurrentEma50: 21_900,
+  nifty500CurrentEma200: 21_500,
+  nifty500RsiCurrent: 55,
+};
+
+const VALID_INDEX_RESULT: IndexAnalyzerResult = {
+  verdict: 'Stage 2',
   positionSizingGuidance: '15%',
-  equityExposure: '70%',
-  explanation: 'Trend and breadth support measured risk-on positioning.',
+  explanation: 'Index EMA stack constructive; macro discount applied to sizing.',
+};
+
+const VALID_PORTFOLIO_RESULT = {
+  equityExposure: '70%' as const,
+  summary: 'Breadth is constructive and VIX is stable; a measured risk-on stance fits.',
 };
 
 function buildTelemetry(): RawTelemetrySnapshot {
@@ -41,125 +65,98 @@ describe('useMarketAnalyzer', () => {
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch');
+    localStorage.clear();
+    vi.mocked(collectMacroTelemetry).mockResolvedValue(MACRO_TELEMETRY);
   });
 
   afterEach(() => {
     fetchSpy.mockRestore();
+    localStorage.clear();
   });
 
-  it('starts in idle state with null result and error and loading false', () => {
+  it('starts in idle state with null results', () => {
     const { result } = renderHook(() => useMarketAnalyzer());
 
-    expect(result.current.status).toBe('idle');
-    expect(result.current.result).toBeNull();
-    expect(result.current.error).toBeNull();
-    expect(result.current.loading).toBe(false);
+    expect(result.current.indexStatus).toBe('idle');
+    expect(result.current.indexResult).toBeNull();
+    expect(result.current.indexError).toBeNull();
+    expect(result.current.portfolioExposure).toBeNull();
+    expect(result.current.indexLoading).toBe(false);
   });
 
-  it('sets loading true immediately when executeAnalysis is invoked', async () => {
-    let resolveFetch!: (value: Response) => void;
-    fetchSpy.mockImplementation(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
-        }),
-    );
-
-    const { result } = renderHook(() => useMarketAnalyzer());
-
-    act(() => {
-      void result.current.executeAnalysis('NIFTY_50', buildTelemetry());
+  it('loads portfolio exposure once and caches it for the day', async () => {
+    fetchSpy.mockImplementation((url: string | URL) => {
+      const path = String(url);
+      if (path.includes('portfolio-exposure')) {
+        return Promise.resolve(jsonResponse(VALID_PORTFOLIO_RESULT));
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${path}`));
     });
-
-    expect(result.current.loading).toBe(true);
-    expect(result.current.status).toBe('loading');
-
-    await act(async () => {
-      resolveFetch(jsonResponse(VALID_RESULT));
-    });
-  });
-
-  it('populates result and clears error after a successful POST', async () => {
-    fetchSpy.mockResolvedValue(jsonResponse(VALID_RESULT));
 
     const { result } = renderHook(() => useMarketAnalyzer());
 
     await act(async () => {
-      await result.current.executeAnalysis('NIFTY_50', buildTelemetry());
+      await result.current.ensurePortfolioExposure();
     });
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.portfolioExposure?.equityExposure).toBe('70%');
     });
 
-    expect(result.current.result).toEqual(VALID_RESULT);
-    expect(result.current.error).toBeNull();
-    expect(result.current.status).toBe('success');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/market-analyzer');
-    expect(init.method).toBe('POST');
-    expect(init.headers).toMatchObject({
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
+    fetchSpy.mockClear();
+
+    await act(async () => {
+      await result.current.ensurePortfolioExposure();
     });
-    expect(JSON.parse(String(init.body))).toHaveProperty('payload');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.current.portfolioExposure?.fromCache).toBe(true);
   });
 
-  it('stores the API error message and leaves result null on 422 responses', async () => {
-    fetchSpy.mockResolvedValue(
-      jsonResponse(
-        { error: 'Unprocessable Entity', message: 'LLM response failed schema validation.' },
-        422,
-      ),
-    );
+  it('populates index result after a successful POST', async () => {
+    fetchSpy.mockImplementation((url: string | URL) => {
+      const path = String(url);
+      if (path.includes('portfolio-exposure')) {
+        return Promise.resolve(jsonResponse(VALID_PORTFOLIO_RESULT));
+      }
+      if (path.endsWith('/api/market-analyzer')) {
+        return Promise.resolve(jsonResponse(VALID_INDEX_RESULT));
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${path}`));
+    });
 
     const { result } = renderHook(() => useMarketAnalyzer());
 
     await act(async () => {
-      await result.current.executeAnalysis('NIFTY_500', buildTelemetry());
+      await result.current.executeIndexAnalysis('NIFTY_50', buildTelemetry());
     });
 
-    expect(result.current.loading).toBe(false);
-    expect(result.current.result).toBeNull();
-    expect(result.current.error).toBe('LLM response failed schema validation.');
-    expect(result.current.status).toBe('error');
+    await waitFor(() => {
+      expect(result.current.indexLoading).toBe(false);
+    });
+
+    expect(result.current.indexResult).toEqual(VALID_INDEX_RESULT);
+    expect(result.current.portfolioExposure?.equityExposure).toBe('70%');
+    expect(result.current.indexError).toBeNull();
+    expect(result.current.indexStatus).toBe('success');
   });
 
-  it('stores a failure message when fetch rejects', async () => {
-    fetchSpy.mockRejectedValue(new Error('Network unreachable'));
+  it('resetIndexAnalysis clears index state but keeps portfolio exposure', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(VALID_PORTFOLIO_RESULT));
 
     const { result } = renderHook(() => useMarketAnalyzer());
 
     await act(async () => {
-      await result.current.executeAnalysis('NIFTY_METAL', buildTelemetry());
+      await result.current.ensurePortfolioExposure();
     });
-
-    expect(result.current.loading).toBe(false);
-    expect(result.current.result).toBeNull();
-    expect(result.current.error).toBe('Network unreachable');
-    expect(result.current.status).toBe('error');
-  });
-
-  it('reset returns all state to idle and null', async () => {
-    fetchSpy.mockResolvedValue(jsonResponse(VALID_RESULT));
-
-    const { result } = renderHook(() => useMarketAnalyzer());
-
-    await act(async () => {
-      await result.current.executeAnalysis('NIFTY_PHARMA', buildTelemetry());
-    });
-
-    expect(result.current.result).not.toBeNull();
 
     act(() => {
-      result.current.reset();
+      result.current.resetIndexAnalysis();
     });
 
-    expect(result.current.status).toBe('idle');
-    expect(result.current.result).toBeNull();
-    expect(result.current.error).toBeNull();
-    expect(result.current.loading).toBe(false);
+    expect(result.current.indexResult).toBeNull();
+    expect(result.current.portfolioExposure?.equityExposure).toBe('70%');
   });
 });

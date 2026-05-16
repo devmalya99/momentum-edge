@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getNseIndiaClient } from '@/lib/nse-india-singleton';
+import { fetchIndexGraphChartPayload } from '@/lib/nse-index-graph-chart';
 import { indexGraphChartPayloadToDailyBars } from '@/lib/nse-index-graph-bars';
 
 export const dynamic = 'force-dynamic';
@@ -21,10 +22,7 @@ export async function GET(request: Request) {
 
   try {
     const client = getNseIndiaClient();
-    const path =
-      `/api/NextApi/apiClient?functionName=getGraphChart` +
-      `&type=${encodeURIComponent(index)}&flag=${encodeURIComponent(flag)}`;
-    const raw = await client.getDataByEndpoint(path);
+    const { payload: raw } = await fetchIndexGraphChartPayload(client, index, flag);
     const bars = indexGraphChartPayloadToDailyBars(raw);
     return NextResponse.json({ index, flag, bars });
   } catch (error) {

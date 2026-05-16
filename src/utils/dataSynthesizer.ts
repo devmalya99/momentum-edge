@@ -4,7 +4,13 @@
  */
 
 import { ANALYZER_LOOKBACK } from '@/lib/market-analyzer/constants';
-import type { CompressedPayload, RawTelemetrySnapshot, TargetIndex } from '@/types/marketAnalyzer';
+import type {
+  CompressedMacroPayload,
+  CompressedPayload,
+  RawMacroTelemetrySnapshot,
+  RawTelemetrySnapshot,
+  TargetIndex,
+} from '@/types/marketAnalyzer';
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -136,6 +142,42 @@ export function synthesizePayload(
       l: round2(telemetry.macdCurrent.line),
       s: round2(telemetry.macdCurrent.signal),
       h: round2(telemetry.macdCurrent.hist),
+    },
+    cal: {
+      dte: daysToMonthlyExpiry,
+      wknd: isWeekendRisk,
+    },
+  };
+}
+
+/** Macro-only payload for portfolio exposure (index-blind). */
+export function synthesizeMacroPayload(
+  telemetry: RawMacroTelemetrySnapshot,
+  referenceDate: Date = new Date(),
+): CompressedMacroPayload {
+  const { daysToMonthlyExpiry, isWeekendRisk } = evaluateTimeWindows(referenceDate);
+
+  const vixSlice = tail(telemetry.vixHistory, ANALYZER_LOOKBACK.vixSessions);
+  const adSlice = tail(telemetry.adRatioHistory, ANALYZER_LOOKBACK.adSessions);
+  const pxSlice = tail(telemetry.nifty500CloseHistory, ANALYZER_LOOKBACK.indexCloseSessions);
+
+  const closesForEma = tail(telemetry.nifty500CloseHistory, ANALYZER_LOOKBACK.emaSessions + 50);
+  const n500E20 = buildEmaDeltaSeries(
+    closesForEma,
+    tail(telemetry.nifty500Ema20History, closesForEma.length),
+    ANALYZER_LOOKBACK.emaSessions,
+  );
+
+  return {
+    asOf: formatAsOfIst(referenceDate),
+    vix: clubDays(vixSlice, ANALYZER_LOOKBACK.vixClub),
+    ad: clubDays(adSlice, ANALYZER_LOOKBACK.adClub),
+    n500: {
+      px: clubDays(pxSlice, ANALYZER_LOOKBACK.indexCloseClub),
+      d20: computeEmaDelta(telemetry.nifty500CurrentPrice, telemetry.nifty500CurrentEma20),
+      d50: computeEmaDelta(telemetry.nifty500CurrentPrice, telemetry.nifty500CurrentEma50),
+      d200: computeEmaDelta(telemetry.nifty500CurrentPrice, telemetry.nifty500CurrentEma200),
+      rsi: round2(telemetry.nifty500RsiCurrent),
     },
     cal: {
       dte: daysToMonthlyExpiry,

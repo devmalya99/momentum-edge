@@ -5,6 +5,8 @@ export type FetchMarketTechnicalParams = {
   symbol: string;
   /** Index graph range flag (default 5Y on server). */
   indexFlag?: string;
+  /** NSE short `type` when long display name 404s. */
+  chartType?: string;
   /** Equity only: YYYY-MM-DD */
   from?: string;
   to?: string;
@@ -16,7 +18,10 @@ export async function fetchMarketTechnical(
   const q = new URLSearchParams();
   q.set('kind', params.kind);
   q.set('symbol', params.symbol.trim());
-  if (params.kind === 'index' && params.indexFlag) q.set('flag', params.indexFlag);
+  if (params.kind === 'index') {
+    if (params.indexFlag) q.set('flag', params.indexFlag);
+    if (params.chartType?.trim()) q.set('chartType', params.chartType.trim());
+  }
   if (params.kind === 'equity') {
     if (params.from) q.set('from', params.from);
     if (params.to) q.set('to', params.to);

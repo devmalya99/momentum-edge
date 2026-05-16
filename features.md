@@ -37,21 +37,26 @@ This document provides a comprehensive list of features implemented in the Momen
 - **Large Deals Panel**: Monitor significant block and bulk transactions in real-time.
 - **India VIX Tracker**: Session history and volatility regime context for risk sizing.
 - **NSE Index Details & Technicals**: Benchmark index panels with OHLC, EMA stack, RSI, and MACD (e.g. NIFTY 50 kline board).
-- **Market Analyzer** *(new)*: AI desk mandate for allocation and exposure by index.
+- **Market Analyzer**: AI desk mandate with dual-axis grading — daily portfolio exposure plus per-index position sizing.
 
 ### Market Analyzer (Market View)
 
-On **Analyse Market**, the page compiles telemetry, compresses it client-side, and calls a session-protected Gemini route. The dashboard is presentation-only; `MarketView` owns fetch and hook orchestration.
+The analyzer uses a **top-down discount model** with two independent calculations. Portfolio exposure is loaded once per IST calendar day; changing the index only re-runs the index-specific read.
 
-- **Index selection**: NIFTY 50, NIFTY 500, NIFTY METAL, NIFTY PHARMA (same NSE graph symbols; no symbol-specific client logic).
-- **Inputs synthesized**: VIX (1mo, 2-day clubs), index closes (2mo, 3-day clubs), A/D ratio (1.5mo, 3-day clubs), EMA 20/50/200 % deltas from spot (1mo, 2-day clubs), current RSI/MACD, days-to-month-end, Thu/Fri weekend-risk flag.
-- **Outputs**:
-  - **Verdict**: Calm | Breeze | Gale | Storm | Hurricane
+**On page load:** `ensurePortfolioExposure()` checks `localStorage` for today’s macro result; on miss, fetches VIX, A/D, and Nifty 500 telemetry → `synthesizeMacroPayload` → `POST /api/market-analyzer/portfolio-exposure`.
+
+**On Analyse Market:** Collects telemetry for the selected index → `synthesizePayload` → `POST /api/market-analyzer` (reuses cached exposure; does not recalculate it).
+
+- **Index selection**: 70+ NSE indices in grouped dropdown — broad, sectoral, thematic, and strategy/factor indices (`index-catalog.ts`).
+- **Portfolio exposure (macro, daily)**: Shown in a dedicated banner above position size — same value regardless of which index is selected.
+  - Scale: 0% | 10% | 30% | 50% | 70% | 100% | 125%
+  - Driven by VIX, A/D, Nifty 500 health, calendar risk, and geopolitical context only.
+- **Per-index outputs** (updates when index or Analyse Market changes):
+  - **Verdict**: Breakdown | Grinding | Transition | Stage 2 | Momentum | Extreme Alignment
   - **Position size**: 0% | 8% | 12% | 15% | 20% | 25%
-  - **Equity exposure** (incl. leverage ceiling): 5% | 30% | 50% | 70% | 100% | 120%
-  - **Desk rationale**: Short explanation of the read
-- **Token efficiency**: Short-key `CompressedPayload` built in `dataSynthesizer.ts` on the main thread before the API call.
-- **Auth**: Requires logged-in session; same-origin + `X-Requested-With` checks on `POST /api/market-analyzer`.
+  - **Desk rationale**: 2–3 conversational sentences on the selected index (no bullet-dump tone)
+- **Token efficiency**: `CompressedPayload` (index) and `CompressedMacroPayload` (macro) built in `dataSynthesizer.ts` on the main thread.
+- **Auth**: Logged-in session required; same-origin + `X-Requested-With` on both analyzer API routes.
 
 ## 4. Trade Entry (`/entry`)
 *A disciplined 3-step engine for high-quality trade logging.*

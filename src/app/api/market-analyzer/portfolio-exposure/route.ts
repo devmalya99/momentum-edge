@@ -2,17 +2,17 @@ import { ZodError } from 'zod';
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
-import { buildIndexAnalyzerPrompt } from '@/lib/ai/market-analyzer-index-prompt';
+import { buildPortfolioExposurePrompt } from '@/lib/ai/market-analyzer-macro-prompt';
 import { extractJsonObject } from '@/lib/ai/stock-overview';
 import { isTrustedSameOriginRequest } from '@/lib/market-analyzer/api-guard';
 import {
-  compressedPayloadSchema,
-  indexAnalyzerResultSchema,
-  marketAnalyzerRequestSchema,
+  compressedMacroPayloadSchema,
+  portfolioExposureRequestSchema,
+  portfolioExposureResultSchema,
 } from '@/types/marketAnalyzer';
 
 const MODEL = 'gemini-3.1-flash-lite-preview';
-const API_TAG = '[api/market-analyzer]';
+const API_TAG = '[api/market-analyzer/portfolio-exposure]';
 
 export async function POST(request: Request) {
   const session = await getSessionFromCookies();
@@ -32,10 +32,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = marketAnalyzerRequestSchema.parse(await request.json());
-    const payload = compressedPayloadSchema.parse(body.payload);
+    const body = portfolioExposureRequestSchema.parse(await request.json());
+    const payload = compressedMacroPayloadSchema.parse(body.payload);
 
-    const prompt = buildIndexAnalyzerPrompt(payload);
+    const prompt = buildPortfolioExposurePrompt(payload);
     const ai = new GoogleGenAI({ apiKey });
     const modelRes = await ai.models.generateContent({ model: MODEL, contents: prompt });
     const llmText = (modelRes.text ?? '').trim();
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const parsed = extractJsonObject(llmText);
-    const result = indexAnalyzerResultSchema.parse(parsed);
+    const result = portfolioExposureResultSchema.parse(parsed);
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     }
 
     const message =
-      error instanceof Error ? error.message : 'Unexpected error during market analysis.';
+      error instanceof Error ? error.message : 'Unexpected error during portfolio exposure analysis.';
     console.error(`${API_TAG} failed:`, error);
 
     return NextResponse.json(

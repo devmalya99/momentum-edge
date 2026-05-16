@@ -25,13 +25,16 @@ This document tracks major technical milestones and feature implementations.
 - **TradingView Synergy**: Seamless integration of advanced charting and workspace tools.
 
 ## ✅ Phase 8: Market Analyzer (Desk Mandate)
-- **End-to-end pipeline**: Telemetry collection → `dataSynthesizer` compression → `POST /api/market-analyzer` → Gemini → structured verdict and sizing UI on Market View.
-- **Multi-index support**: Uniform handling for NIFTY 50, NIFTY 500, NIFTY METAL, and NIFTY PHARMA via `index-config.ts`.
-- **Deterministic client math**: `clubDays`, EMA % deltas, and IST calendar windows (`evaluateTimeWindows`) with tunable lookbacks in `constants.ts`.
+- **Dual-axis grading**: Six-tier technical verdicts (Breakdown → Extreme Alignment) with independent position-size and portfolio-exposure scales.
+- **Decoupled portfolio exposure**: Macro-only `POST /api/market-analyzer/portfolio-exposure` (VIX, A/D, Nifty 500, calendar) — index-blind, cached per IST calendar day in `localStorage`.
+- **Per-index analysis**: `POST /api/market-analyzer` returns verdict, position sizing, and conversational desk rationale for the selected index only.
+- **Split LLM prompts**: `market-analyzer-macro-prompt.ts` (Calculation B) and `market-analyzer-index-prompt.ts` (Calculation A + macro discount).
+- **Multi-index support**: Catalog-driven handling for 70+ NSE broad, sectoral, thematic, and strategy indices via `index-catalog.ts`.
+- **Deterministic client math**: `clubDays`, EMA % deltas, `synthesizePayload` / `synthesizeMacroPayload`, and IST calendar windows with tunable lookbacks in `constants.ts`.
 - **Isolated A/D merge**: `build-ad-ratio-series.ts` copies Market View merge rules without refactoring legacy chart code.
-- **Separation of concerns**: `AnalysisDashboard` is props-only; `MarketView` orchestrates `collectMarketTelemetry` and `useMarketAnalyzer`.
-- **Session-hardened API**: Market analyzer route mirrors stock-overview auth (cookies + same-origin).
-- **Test coverage**: Vitest suites for `dataSynthesizer`, `build-ad-ratio-series`, and `useMarketAnalyzer` (24 atomic tests).
+- **Separation of concerns**: `AnalysisDashboard` is props-only; `MarketView` orchestrates telemetry, daily exposure bootstrap, and `useMarketAnalyzer`.
+- **Session-hardened APIs**: Analyzer routes share `api-guard.ts` (cookies + same-origin + `X-Requested-With`).
+- **Test coverage**: Vitest suites for `dataSynthesizer`, `build-ad-ratio-series`, `index-catalog`, and `useMarketAnalyzer` (portfolio cache + index analysis).
 
 ## ✅ Phase 5: Documentation & Knowledge Base
 - **Comprehensive Feature Analysis**: Developed `features.md` for page-by-page functionality mapping.
