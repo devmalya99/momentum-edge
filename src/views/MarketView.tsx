@@ -28,7 +28,6 @@ import {
 import { format, parseISO } from 'date-fns';
 import { MarketTechnicalKlineBoard } from '@/features/market-technical/ui/MarketTechnicalKlineBoard';
 import LargeDealsPanel from '@/components/market/LargeDealsPanel';
-import NseIndexDetailsPanel from '@/components/market/NseIndexDetailsPanel';
 import VixTrackerPanel from '@/components/market/VixTrackerPanel';
 import { AnalysisDashboard } from '@/components/MarketAnalyzer/AnalysisDashboard';
 import { useMarketAnalyzer } from '@/hooks/useMarketAnalyzer';
@@ -279,7 +278,6 @@ export default function MarketView() {
   const [neonError, setNeonError] = useState<string | null>(null);
 
   const [largeDealsReloadToken, setLargeDealsReloadToken] = useState(0);
-  const [indexDetailsReloadToken, setIndexDetailsReloadToken] = useState(0);
   const [marketTechnicalReloadToken, setMarketTechnicalReloadToken] = useState(0);
   const [vixReloadToken, setVixReloadToken] = useState(0);
   const [analyzerIndex, setAnalyzerIndex] = useState<TargetIndex>('NIFTY_50');
@@ -433,7 +431,6 @@ export default function MarketView() {
     void loadNeonDaily();
     void loadTradingHolidays();
     setLargeDealsReloadToken((t) => t + 1);
-    setIndexDetailsReloadToken((t) => t + 1);
     setMarketTechnicalReloadToken((t) => t + 1);
     setVixReloadToken((t) => t + 1);
   }, [loadLive, loadHistory, loadNeonDaily, loadTradingHolidays]);
@@ -1070,8 +1067,6 @@ export default function MarketView() {
       )}
 
       <LargeDealsPanel reloadToken={largeDealsReloadToken} />
-
-      <NseIndexDetailsPanel indexName="NIFTY 500" reloadToken={indexDetailsReloadToken} />
 
       <VixTrackerPanel reloadToken={vixReloadToken} />
 
