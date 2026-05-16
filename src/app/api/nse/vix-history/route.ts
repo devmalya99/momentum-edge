@@ -3,7 +3,7 @@ import { unstable_cache } from 'next/cache';
 import { VIX_HISTORY_REVALIDATE_SECONDS } from '@/features/vix-tracker/constants';
 import { fetchVixHistoryPayload, VIX_CHART_SESSIONS } from '@/lib/nse-vix-history';
 
-export const revalidate = VIX_HISTORY_REVALIDATE_SECONDS;
+export const revalidate = 2600;
 
 const getVixHistoryCached = unstable_cache(
   async (sessions: number) => fetchVixHistoryPayload(sessions),

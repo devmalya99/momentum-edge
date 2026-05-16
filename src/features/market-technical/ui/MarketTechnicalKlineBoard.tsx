@@ -60,6 +60,7 @@ export type MarketTechnicalKlineBoardProps = Omit<MarketTechnicalQueryInput, 'sy
   title?: string;
   symbol: string;
   kind: MarketTechnicalKind;
+  className?: string;
 };
 
 /**
