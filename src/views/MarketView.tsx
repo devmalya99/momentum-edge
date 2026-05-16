@@ -26,8 +26,10 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
-import TradingViewWidget from '@/components/TradingViewWidget';
+import { MarketTechnicalKlineBoard } from '@/features/market-technical/ui/MarketTechnicalKlineBoard';
 import LargeDealsPanel from '@/components/market/LargeDealsPanel';
+import NseIndexDetailsPanel from '@/components/market/NseIndexDetailsPanel';
+import VixTrackerPanel from '@/components/market/VixTrackerPanel';
 import { NSE_MONTHLY_LOOKBACK } from '@/lib/nse-month-keys';
 import type { Holiday } from '@/lib/nse-holiday-types';
 import InfoTooltip from '@/components/shared/InfoTooltip';
@@ -273,6 +275,9 @@ export default function MarketView() {
   const [neonError, setNeonError] = useState<string | null>(null);
 
   const [largeDealsReloadToken, setLargeDealsReloadToken] = useState(0);
+  const [indexDetailsReloadToken, setIndexDetailsReloadToken] = useState(0);
+  const [marketTechnicalReloadToken, setMarketTechnicalReloadToken] = useState(0);
+  const [vixReloadToken, setVixReloadToken] = useState(0);
   const [tradingHolidays, setTradingHolidays] = useState<Holiday[]>([]);
   const [holidaysLoading, setHolidaysLoading] = useState(true);
   const [holidaysError, setHolidaysError] = useState<string | null>(null);
@@ -410,6 +415,9 @@ export default function MarketView() {
     void loadNeonDaily();
     void loadTradingHolidays();
     setLargeDealsReloadToken((t) => t + 1);
+    setIndexDetailsReloadToken((t) => t + 1);
+    setMarketTechnicalReloadToken((t) => t + 1);
+    setVixReloadToken((t) => t + 1);
   }, [loadLive, loadHistory, loadNeonDaily, loadTradingHolidays]);
 
   useEffect(() => {
@@ -1026,6 +1034,10 @@ export default function MarketView() {
 
       <LargeDealsPanel reloadToken={largeDealsReloadToken} />
 
+      <NseIndexDetailsPanel indexName="NIFTY 500" reloadToken={indexDetailsReloadToken} />
+
+      <VixTrackerPanel reloadToken={vixReloadToken} />
+
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
           <div>
@@ -1075,7 +1087,7 @@ export default function MarketView() {
           <div className="space-y-2.5 text-xs text-gray-400 leading-relaxed">
             <p>
               Advance/decline treats <span className="text-gray-300">every stock equally</span>. Major
-              indices (Sensex, Nifty) are <span className="text-gray-300">narrow and cap-weighted</span>—a
+              indices (Sensex, Nifty 50) are <span className="text-gray-300">narrow and cap-weighted</span>—a
               handful of large names can mask what the wider market is doing. Comparing this chart with
               the benchmark below is how you read that gap.
             </p>
@@ -1313,14 +1325,21 @@ export default function MarketView() {
         <div className="mt-10 space-y-5 border-t border-white/5 pt-10">
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500">
-              SENSEX (TradingView)
+              NIFTY 50 — NSE technicals
             </h3>
             <p className="text-xs text-gray-500">
-              Benchmark context to compare with the NSE advance/decline trend above.
+              Benchmark price context (daily candles + EMA stack) to compare with the NSE advance/decline
+              trend above. Swap the symbol and kind to reuse the same panel for any index or equity.
             </p>
           </div>
           <div className="pt-2">
-            <TradingViewWidget />
+            <MarketTechnicalKlineBoard
+              title="NIFTY 50"
+              symbol="NIFTY 50"
+              kind="index"
+              indexFlag="5Y"
+              reloadToken={marketTechnicalReloadToken}
+            />
           </div>
         </div>
 

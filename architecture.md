@@ -47,3 +47,12 @@ This document outlines the technical architecture, technology stack, and directo
 2. **P&L Processing**: `.xlsx` Upload → Client-side Parser → IndexedDB Storage + Server Sync → Custom Analytics View.
 3. **Trade Logging**: Setup Analysis → Rule Scoring → Risk Validation → Database Persistence (Prisma).
 4. **Networth Balancing**: Manual Entries + Live NSE Quotes → Aggregator → Balance Sheet Logic → Total Networth display.
+
+
+Folder planning :
+when building a new feature use the feature folder
+
+api : for connecting the backend api in a function
+query : for connection the api and create the react query hook
+helper: for writing addditional helper function 
+ui : for organising all the related ui components together
