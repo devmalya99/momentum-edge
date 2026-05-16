@@ -30,6 +30,10 @@ import { MarketTechnicalKlineBoard } from '@/features/market-technical/ui/Market
 import LargeDealsPanel from '@/components/market/LargeDealsPanel';
 import NseIndexDetailsPanel from '@/components/market/NseIndexDetailsPanel';
 import VixTrackerPanel from '@/components/market/VixTrackerPanel';
+import { AnalysisDashboard } from '@/components/MarketAnalyzer/AnalysisDashboard';
+import { useMarketAnalyzer } from '@/hooks/useMarketAnalyzer';
+import { collectMarketTelemetry } from '@/lib/market-analyzer/collect-telemetry';
+import type { TargetIndex } from '@/types/marketAnalyzer';
 import { NSE_MONTHLY_LOOKBACK } from '@/lib/nse-month-keys';
 import type { Holiday } from '@/lib/nse-holiday-types';
 import InfoTooltip from '@/components/shared/InfoTooltip';
@@ -278,6 +282,16 @@ export default function MarketView() {
   const [indexDetailsReloadToken, setIndexDetailsReloadToken] = useState(0);
   const [marketTechnicalReloadToken, setMarketTechnicalReloadToken] = useState(0);
   const [vixReloadToken, setVixReloadToken] = useState(0);
+  const [analyzerIndex, setAnalyzerIndex] = useState<TargetIndex>('NIFTY_50');
+  const [analyzerCollectError, setAnalyzerCollectError] = useState<string | null>(null);
+  const [analyzerBusy, setAnalyzerBusy] = useState(false);
+  const {
+    loading: analyzerLoading,
+    error: analyzerError,
+    result: analyzerResult,
+    executeAnalysis,
+    reset: resetAnalyzer,
+  } = useMarketAnalyzer();
   const [tradingHolidays, setTradingHolidays] = useState<Holiday[]>([]);
   const [holidaysLoading, setHolidaysLoading] = useState(true);
   const [holidaysError, setHolidaysError] = useState<string | null>(null);
@@ -714,6 +728,21 @@ export default function MarketView() {
   const busy = liveLoading || historyLoading;
   const refreshSpinning = busy || neonLoading;
 
+  const handleAnalyzeMarket = useCallback(async () => {
+    setAnalyzerCollectError(null);
+    setAnalyzerBusy(true);
+    try {
+      const telemetry = await collectMarketTelemetry(analyzerIndex);
+      await executeAnalysis(analyzerIndex, telemetry);
+    } catch (err: unknown) {
+      console.error('[MarketView] analyze market:', err);
+      const message = err instanceof Error ? err.message : 'Failed to collect market telemetry.';
+      setAnalyzerCollectError(message);
+    } finally {
+      setAnalyzerBusy(false);
+    }
+  }, [analyzerIndex, executeAnalysis]);
+
   const chartUsesNeonBlend =
     neonByDate.size > 0 && (chartYear !== 'rolling' ? neonMonthPrefixes.size > 0 : true);
 
@@ -1037,6 +1066,19 @@ export default function MarketView() {
       <NseIndexDetailsPanel indexName="NIFTY 500" reloadToken={indexDetailsReloadToken} />
 
       <VixTrackerPanel reloadToken={vixReloadToken} />
+
+      <AnalysisDashboard
+        selectedIndex={analyzerIndex}
+        onIndexChange={(index) => {
+          setAnalyzerIndex(index);
+          setAnalyzerCollectError(null);
+          resetAnalyzer();
+        }}
+        onAnalyze={() => void handleAnalyzeMarket()}
+        loading={analyzerBusy || analyzerLoading}
+        error={analyzerCollectError ?? analyzerError}
+        result={analyzerResult}
+      />
 
       <div className="p-8 rounded-3xl bg-[#161618] border border-white/5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">

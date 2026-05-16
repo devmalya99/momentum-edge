@@ -24,6 +24,15 @@ This document tracks major technical milestones and feature implementations.
 - **Advanced A/D Visualizer**: Live market sentiment monitoring with seasonal comparison capabilities.
 - **TradingView Synergy**: Seamless integration of advanced charting and workspace tools.
 
+## ✅ Phase 8: Market Analyzer (Desk Mandate)
+- **End-to-end pipeline**: Telemetry collection → `dataSynthesizer` compression → `POST /api/market-analyzer` → Gemini → structured verdict and sizing UI on Market View.
+- **Multi-index support**: Uniform handling for NIFTY 50, NIFTY 500, NIFTY METAL, and NIFTY PHARMA via `index-config.ts`.
+- **Deterministic client math**: `clubDays`, EMA % deltas, and IST calendar windows (`evaluateTimeWindows`) with tunable lookbacks in `constants.ts`.
+- **Isolated A/D merge**: `build-ad-ratio-series.ts` copies Market View merge rules without refactoring legacy chart code.
+- **Separation of concerns**: `AnalysisDashboard` is props-only; `MarketView` orchestrates `collectMarketTelemetry` and `useMarketAnalyzer`.
+- **Session-hardened API**: Market analyzer route mirrors stock-overview auth (cookies + same-origin).
+- **Test coverage**: Vitest suites for `dataSynthesizer`, `build-ad-ratio-series`, and `useMarketAnalyzer` (24 atomic tests).
+
 ## ✅ Phase 5: Documentation & Knowledge Base
 - **Comprehensive Feature Analysis**: Developed `features.md` for page-by-page functionality mapping.
 - **System Architecture Mapping**: Created `architecture.md` detailing the technical blue-print.

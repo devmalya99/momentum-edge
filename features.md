@@ -35,6 +35,23 @@ This document provides a comprehensive list of features implemented in the Momen
 - **Live Institutional Context**: Guidance on "Trap backdrops" or "Capitulation" levels based on FII data.
 - **Historical Breadth**: Smoothed plotting of A/D trends across weeks and months.
 - **Large Deals Panel**: Monitor significant block and bulk transactions in real-time.
+- **India VIX Tracker**: Session history and volatility regime context for risk sizing.
+- **NSE Index Details & Technicals**: Benchmark index panels with OHLC, EMA stack, RSI, and MACD (e.g. NIFTY 50 kline board).
+- **Market Analyzer** *(new)*: AI desk mandate for allocation and exposure by index.
+
+### Market Analyzer (Market View)
+
+On **Analyse Market**, the page compiles telemetry, compresses it client-side, and calls a session-protected Gemini route. The dashboard is presentation-only; `MarketView` owns fetch and hook orchestration.
+
+- **Index selection**: NIFTY 50, NIFTY 500, NIFTY METAL, NIFTY PHARMA (same NSE graph symbols; no symbol-specific client logic).
+- **Inputs synthesized**: VIX (1mo, 2-day clubs), index closes (2mo, 3-day clubs), A/D ratio (1.5mo, 3-day clubs), EMA 20/50/200 % deltas from spot (1mo, 2-day clubs), current RSI/MACD, days-to-month-end, Thu/Fri weekend-risk flag.
+- **Outputs**:
+  - **Verdict**: Calm | Breeze | Gale | Storm | Hurricane
+  - **Position size**: 0% | 8% | 12% | 15% | 20% | 25%
+  - **Equity exposure** (incl. leverage ceiling): 5% | 30% | 50% | 70% | 100% | 120%
+  - **Desk rationale**: Short explanation of the read
+- **Token efficiency**: Short-key `CompressedPayload` built in `dataSynthesizer.ts` on the main thread before the API call.
+- **Auth**: Requires logged-in session; same-origin + `X-Requested-With` checks on `POST /api/market-analyzer`.
 
 ## 4. Trade Entry (`/entry`)
 *A disciplined 3-step engine for high-quality trade logging.*

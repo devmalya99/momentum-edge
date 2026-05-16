@@ -35,9 +35,13 @@ This document outlines the technical architecture, technology stack, and directo
 - `src/features`: Modular, feature-specific logic and UI (e.g., 52wScanner, Watchlist).
 - `src/components`: Reusable UI components (Modals, Cards, Charts, Layout).
 - `src/store`: Global state management stores (Auth, Trades, Analytics).
-- `src/hooks`: Custom React hooks for shared logic (Live prices, MTF calculations).
+- `src/hooks`: Custom React hooks for shared logic (Live prices, MTF calculations, Market Analyzer orchestration).
+- `src/types`: Shared TypeScript contracts (e.g. `marketAnalyzer.ts` — payload scales and Zod schemas).
 - `src/lib`: Shared utility libraries (NSE clients, formatters, database clients).
-- `src/utils`: Mathematical and business logic utilities (Risk calculations, Scoring verdicts).
+  - `src/lib/market-analyzer/`: Market Analyzer support — tunable constants, index symbol map, A/D series builder, telemetry collection.
+  - `src/lib/ai/market-analyzer-prompt.ts`: Gemini system prompt for desk-style market reads.
+- `src/utils`: Mathematical and business logic utilities (Risk calculations, Scoring verdicts, `dataSynthesizer.ts` for token compression).
+- `src/components/MarketAnalyzer/`: Presentation-only UI for analyzer results (`AnalysisDashboard.tsx`).
 - `src/db`: Database schema definitions and adapter logic.
 - `src/analytics`: Specialized logic for parsing and computing P&L metrics.
 
@@ -47,7 +51,22 @@ This document outlines the technical architecture, technology stack, and directo
 2. **P&L Processing**: `.xlsx` Upload → Client-side Parser → IndexedDB Storage + Server Sync → Custom Analytics View.
 3. **Trade Logging**: Setup Analysis → Rule Scoring → Risk Validation → Database Persistence (Prisma).
 4. **Networth Balancing**: Manual Entries + Live NSE Quotes → Aggregator → Balance Sheet Logic → Total Networth display.
+5. **Market Analyzer** (Market View): User selects index → `collectMarketTelemetry` (VIX, index OHLC/EMAs, A/D, RSI/MACD) → `dataSynthesizer.synthesizePayload` (main-thread clubbing & EMA deltas) → `POST /api/market-analyzer` (session + same-origin) → Gemini → verdict, position size %, equity exposure %, and desk explanation rendered in `AnalysisDashboard`.
 
+### Market Analyzer pipeline (detail)
+
+```text
+MarketView (orchestrator)
+  → collect-telemetry.ts     … parallel NSE / Neon fetches
+  → build-ad-ratio-series.ts … isolated A/D merge (chart code untouched)
+  → dataSynthesizer.ts      … clubDays, EMA % deltas, calendar flags
+  → useMarketAnalyzer.ts     … POST + result state
+  → AnalysisDashboard.tsx    … props-only UI
+
+/api/market-analyzer         … Zod in/out, Gemini flash-lite, JSON-only response
+```
+
+**Design constraints:** No Web Workers; no per-index client scoring (LLM + prompt only); tunable lookbacks in `src/lib/market-analyzer/constants.ts`. Supported indices: NIFTY 50, NIFTY 500, NIFTY METAL, NIFTY PHARMA (uniform symbol map in `index-config.ts`).
 
 Folder planning :
 when building a new feature use the feature folder
