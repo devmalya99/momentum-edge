@@ -24,6 +24,9 @@ import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
+import { useMembership } from '@/hooks/useMembership';
+import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
+import { useMembershipUpgradeStore } from '@/store/useMembershipUpgradeStore';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
@@ -50,6 +53,8 @@ export default function WatchlistWorkspace() {
   const canEditStockTags = authUser?.role === 'admin';
   const addToWatchlist = useTradeStore((s) => s.addToWatchlist);
   const addManyToWatchlist = useTradeStore((s) => s.addManyToWatchlist);
+  const { isPremium } = useMembership();
+  const openMembershipUpgrade = useMembershipUpgradeStore((s) => s.openMembershipUpgrade);
   const createWatchlistList = useTradeStore((s) => s.createWatchlistList);
   const renameWatchlistList = useTradeStore((s) => s.renameWatchlistList);
   const deleteWatchlistList = useTradeStore((s) => s.deleteWatchlistList);
@@ -314,10 +319,22 @@ export default function WatchlistWorkspace() {
     [itemsForList],
   );
 
+  const canAddWatchlistCount = useCallback(
+    (count: number) => {
+      if (isPremium) return true;
+      return watchlist.length + count <= BASIC_WATCHLIST_LIMIT;
+    },
+    [isPremium, watchlist.length],
+  );
+
   const handleAddEquityHit = useCallback(
     async (hit: NseEquitySearchHit) => {
       const sym = hit.symbol.trim().toUpperCase();
       if (equityAlreadyInList(sym)) return;
+      if (!canAddWatchlistCount(1)) {
+        openMembershipUpgrade('watchlist');
+        return;
+      }
       const id = newItemId();
       await addToWatchlist({
         id,
@@ -330,7 +347,7 @@ export default function WatchlistWorkspace() {
       setSearchDraft('');
       setSearchOpen(false);
     },
-    [addToWatchlist, activeListId, onPickWatchlistRow, equityAlreadyInList],
+    [addToWatchlist, activeListId, onPickWatchlistRow, equityAlreadyInList, canAddWatchlistCount, openMembershipUpgrade],
   );
 
   const handleAddIndexHit = useCallback(
@@ -371,6 +388,11 @@ export default function WatchlistWorkspace() {
           })),
         ];
 
+        if (!canAddWatchlistCount(batch.length)) {
+          openMembershipUpgrade('watchlist');
+          return;
+        }
+
         await addManyToWatchlist(batch);
         const firstId = batch[0]?.id;
         if (firstId) onPickWatchlistRow(firstId);
@@ -380,7 +402,7 @@ export default function WatchlistWorkspace() {
         window.alert(e instanceof Error ? e.message : 'Failed to add index');
       }
     },
-    [addManyToWatchlist, activeListId, onPickWatchlistRow, indexAlreadyInList],
+    [addManyToWatchlist, activeListId, onPickWatchlistRow, indexAlreadyInList, canAddWatchlistCount, openMembershipUpgrade],
   );
 
   const onCreateList = useCallback(async () => {

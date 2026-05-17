@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
+import { requirePremiumMembership } from '@/lib/membership/server';
 import {
   AI_STOCK_OVERVIEW_STALE_MS,
   computeStockOverviewScore,
@@ -59,6 +60,8 @@ export async function POST(request: Request) {
     console.warn(`${API_TAG} unauthorized`);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const premiumGate = await requirePremiumMembership(session.sub);
+  if (premiumGate) return premiumGate;
   if (!isTrustedSameOriginRequest(request)) {
     console.warn(`${API_TAG} request rejected by verification checks`);
     return NextResponse.json({ error: 'Request failed verification checks' }, { status: 403 });

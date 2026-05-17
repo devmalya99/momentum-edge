@@ -28,6 +28,8 @@ import {
   stockTriggerApiResponseSchema,
   type StockNewsItem,
 } from '@/lib/ai/analyse-scan';
+import { MembershipUpgradePrompt } from '@/components/membership/MembershipUpgradePrompt';
+import { useMembership } from '@/hooks/useMembership';
 
 type ScanAnalysisStock = {
   symbol: string;
@@ -152,10 +154,11 @@ export default function ScanAnalysisSheet({
     () => requestStocks.map((stock) => stock.symbol.trim().toUpperCase()).join('|'),
     [requestStocks],
   );
+  const { isPremium } = useMembership();
   const q = useQuery({
     queryKey: ['ai', 'analyse-scan', scannerName, symbolsKey],
     queryFn: () => fetchScanAnalysis(scannerName, requestStocks),
-    enabled: open && requestStocks.length > 0,
+    enabled: open && requestStocks.length > 0 && isPremium,
     staleTime: 10 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -267,6 +270,8 @@ export default function ScanAnalysisSheet({
             <p className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-gray-400">
               No stocks are visible in this scan yet.
             </p>
+          ) : !isPremium ? (
+            <MembershipUpgradePrompt reason="ai" />
           ) : q.isPending ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm text-gray-400">

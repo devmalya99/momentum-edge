@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { getSessionFromCookies } from '@/lib/auth/server-session';
 import { listAiQuantamentalScores } from '@/lib/db/ai-quantamental-cache';
+import { requirePremiumMembership } from '@/lib/membership/server';
 import {
   quantamentalScoresRequestSchema,
   quantamentalScoresResponseSchema,
@@ -9,6 +11,13 @@ const API_TAG = '[api/analyze/scores]';
 
 export async function POST(request: Request) {
   try {
+    const session = await getSessionFromCookies();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const premiumGate = await requirePremiumMembership(session.sub);
+    if (premiumGate) return premiumGate;
+
     const validated = quantamentalScoresRequestSchema.parse(await request.json());
     const rows = await listAiQuantamentalScores(validated.tickers);
     const nowMs = Date.now();

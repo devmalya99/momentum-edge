@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
+import { toPublicUser } from '@/lib/auth/public-user';
 import { getUserById } from '@/lib/db/users';
 
 export async function GET() {
@@ -14,16 +15,7 @@ export async function GET() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        tradingExperience: user.trading_experience ?? '',
-        imageUrl: user.image_url ?? '',
-      },
-    });
+    return NextResponse.json({ user: toPublicUser(user) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch user';
     return NextResponse.json({ error: message }, { status: 500 });

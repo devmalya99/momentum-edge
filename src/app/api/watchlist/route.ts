@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
 import {
+  countUserWatchlistItems,
   deleteUserWatchlistItem,
   listUserWatchlist,
   listUserWatchlistLists,
   seedDefaultWatchlistListIfEmpty,
   upsertUserWatchlistItem,
+  userWatchlistItemExists,
   type UserWatchlistInput,
   type WatchlistKind,
 } from '@/lib/db/watchlist';
+import { BASIC_WATCHLIST_LIMIT, PREMIUM_REQUIRED_CODE } from '@/lib/membership/constants';
+import { getUserMembership, isPremiumMembership } from '@/lib/membership/server';
 
 function normalizeWatchlistItem(input: unknown): UserWatchlistInput | null {
   if (!input || typeof input !== 'object') return null;
@@ -35,9 +39,12 @@ export async function GET() {
     }
 
     await seedDefaultWatchlistListIfEmpty(session.sub);
+    const membership = await getUserMembership(session.sub);
     const lists = await listUserWatchlistLists(session.sub);
     const watchlist = await listUserWatchlist(session.sub);
     return NextResponse.json({
+      membership,
+      watchlistLimit: isPremiumMembership(membership) ? null : BASIC_WATCHLIST_LIMIT,
       lists: lists.map((l) => ({
         id: l.id,
         name: l.name,
@@ -70,6 +77,25 @@ export async function POST(request: Request) {
     const item = normalizeWatchlistItem(payload.item);
     if (!item) {
       return NextResponse.json({ error: 'Invalid watchlist payload' }, { status: 400 });
+    }
+
+    const isNew = !(await userWatchlistItemExists(session.sub, item.id));
+    if (isNew) {
+      const membership = await getUserMembership(session.sub);
+      if (!isPremiumMembership(membership)) {
+        const count = await countUserWatchlistItems(session.sub);
+        if (count >= BASIC_WATCHLIST_LIMIT) {
+          return NextResponse.json(
+            {
+              error: `Basic membership allows up to ${BASIC_WATCHLIST_LIMIT} watchlist symbols. Upgrade to Premium for unlimited.`,
+              code: PREMIUM_REQUIRED_CODE,
+              limit: BASIC_WATCHLIST_LIMIT,
+              membership: 'basic',
+            },
+            { status: 403 },
+          );
+        }
+      }
     }
 
     await upsertUserWatchlistItem(session.sub, item);

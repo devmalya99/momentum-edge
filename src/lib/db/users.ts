@@ -1,4 +1,5 @@
 import { getNeonSql } from '@/lib/db/ad-ratio';
+import type { UserMembership } from '@/lib/membership/types';
 
 export type UserRow = {
   id: string;
@@ -6,6 +7,7 @@ export type UserRow = {
   password_hash: string;
   name: string;
   role: string;
+  membership: UserMembership;
   trading_experience: string | null;
   image_url: string | null;
   created_at: string;
@@ -34,7 +36,26 @@ export async function ensureUsersTable(): Promise<void> {
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'user'
   `;
+  await sql`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free'
+  `;
+  await sql`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS membership text NOT NULL DEFAULT 'basic'
+  `;
+  await sql`
+    UPDATE users
+    SET membership = 'premium'
+    WHERE plan = 'premium' AND membership <> 'premium'
+  `;
   usersSchemaReady = true;
+}
+
+/** Accepts legacy `plan` values (free/premium) during migration. */
+export function normalizeUserMembership(value: string | null | undefined): UserMembership {
+  if (value === 'premium') return 'premium';
+  return 'basic';
 }
 
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
@@ -47,6 +68,7 @@ export async function getUserByEmail(email: string): Promise<UserRow | null> {
       password_hash,
       name,
       role,
+      membership,
       trading_experience,
       image_url,
       created_at::text AS created_at,
@@ -56,7 +78,9 @@ export async function getUserByEmail(email: string): Promise<UserRow | null> {
     LIMIT 1
   `;
 
-  return (rows[0] as UserRow | undefined) ?? null;
+  const row = rows[0] as Omit<UserRow, 'membership'> & { membership?: string } | undefined;
+  if (!row) return null;
+  return { ...row, membership: normalizeUserMembership(row.membership) };
 }
 
 export async function getUserById(id: string): Promise<UserRow | null> {
@@ -69,6 +93,7 @@ export async function getUserById(id: string): Promise<UserRow | null> {
       password_hash,
       name,
       role,
+      membership,
       trading_experience,
       image_url,
       created_at::text AS created_at,
@@ -78,7 +103,9 @@ export async function getUserById(id: string): Promise<UserRow | null> {
     LIMIT 1
   `;
 
-  return (rows[0] as UserRow | undefined) ?? null;
+  const row = rows[0] as Omit<UserRow, 'membership'> & { membership?: string } | undefined;
+  if (!row) return null;
+  return { ...row, membership: normalizeUserMembership(row.membership) };
 }
 
 export async function createUser(input: {
@@ -91,8 +118,15 @@ export async function createUser(input: {
   await ensureUsersTable();
   const sql = getNeonSql();
   await sql`
-    INSERT INTO users (id, email, password_hash, name, role)
-    VALUES (${input.id}, ${input.email}, ${input.passwordHash}, ${input.name}, ${input.role ?? 'user'})
+    INSERT INTO users (id, email, password_hash, name, role, membership)
+    VALUES (
+      ${input.id},
+      ${input.email},
+      ${input.passwordHash},
+      ${input.name},
+      ${input.role ?? 'user'},
+      'basic'
+    )
   `;
 }
 

@@ -40,6 +40,7 @@ export async function POST(request: Request) {
         email: parsed.data.email,
         name: parsed.data.name,
         role: 'user',
+        membership: 'basic' as const,
         tradingExperience: '',
         imageUrl: '',
       },

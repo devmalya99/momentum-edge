@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { MembershipCard } from '@/components/membership/MembershipCard';
 import { useAuthStore } from '@/store/useAuthStore';
 
 type ProfileUser = {
@@ -9,12 +10,14 @@ type ProfileUser = {
   name: string;
   email: string;
   role: string;
+  membership: 'basic' | 'premium';
   tradingExperience: string;
   imageUrl: string;
 };
 
 type ProfileResponse = {
   user?: ProfileUser;
+  membershipOffer?: { amountLabel: string };
   error?: string;
 };
 
@@ -39,18 +42,19 @@ export default function ProfilePage() {
       if (!response.ok || !data.user) {
         throw new Error(data.error ?? 'Failed to load profile');
       }
-      return data.user;
+      return { user: data.user, membershipOffer: data.membershipOffer };
     },
   });
 
   useEffect(() => {
-    if (!profileQuery.data) return;
+    const user = profileQuery.data?.user;
+    if (!user) return;
     setForm((prev) => ({
       ...prev,
-      name: profileQuery.data.name,
-      email: profileQuery.data.email,
-      tradingExperience: profileQuery.data.tradingExperience,
-      imageUrl: profileQuery.data.imageUrl,
+      name: user.name,
+      email: user.email,
+      tradingExperience: user.tradingExperience,
+      imageUrl: user.imageUrl,
     }));
   }, [profileQuery.data]);
 
@@ -91,6 +95,11 @@ export default function ProfilePage() {
           Update your trader identity, experience, and account security.
         </p>
       </header>
+
+      <MembershipCard
+        membership={profileQuery.data?.user.membership ?? 'basic'}
+        amountLabel={profileQuery.data?.membershipOffer?.amountLabel}
+      />
 
       <form
         className="space-y-5 rounded-3xl border border-white/10 bg-white/5 p-6"

@@ -147,6 +147,29 @@ export async function seedDefaultWatchlistListIfEmpty(userId: string): Promise<v
   });
 }
 
+export async function countUserWatchlistItems(userId: string): Promise<number> {
+  await ensureUserWatchlistTable();
+  const sql = getNeonSql();
+  const rows = await sql`
+    SELECT COUNT(*)::int AS count
+    FROM user_watchlist
+    WHERE user_id = ${userId}
+  `;
+  return Number((rows[0] as { count?: number } | undefined)?.count ?? 0);
+}
+
+export async function userWatchlistItemExists(userId: string, id: string): Promise<boolean> {
+  await ensureUserWatchlistTable();
+  const sql = getNeonSql();
+  const rows = await sql`
+    SELECT 1
+    FROM user_watchlist
+    WHERE user_id = ${userId} AND id = ${id}
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 export async function listUserWatchlist(userId: string): Promise<UserWatchlistRow[]> {
   await ensureUserWatchlistTable();
   const sql = getNeonSql();

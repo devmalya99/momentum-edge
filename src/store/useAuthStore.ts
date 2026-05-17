@@ -7,6 +7,7 @@ export type AuthUser = {
   name: string;
   email: string;
   role: string;
+  membership?: 'basic' | 'premium';
   tradingExperience: string;
   imageUrl: string;
 };

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Layout from '@/components/Layout';
 import { AuthBootstrap } from '@/components/auth/AuthBootstrap';
+import { MembershipProvider } from '@/components/membership/MembershipProvider';
 import { useTradeStore } from '@/store/useTradeStore';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AuthBootstrap />
+      <MembershipProvider />
       <Layout>{children}</Layout>
     </>
   );

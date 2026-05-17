@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 import { profileUpdateSchema } from '@/lib/auth/schemas';
 import { setAuthCookie, signSessionToken } from '@/lib/auth/session';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
+import { toPublicUser } from '@/lib/auth/public-user';
+import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
+import { formatInrFromPaise, getPremiumAmountPaise } from '@/lib/razorpay/config';
 import { getUserByEmail, getUserById, updateUserProfile } from '@/lib/db/users';
 
 export async function GET() {
@@ -16,14 +19,13 @@ export async function GET() {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
 
+  const amountPaise = getPremiumAmountPaise();
   return NextResponse.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      tradingExperience: user.trading_experience ?? '',
-      imageUrl: user.image_url ?? '',
+    user: toPublicUser(user),
+    membershipOffer: {
+      amountPaise,
+      amountLabel: formatInrFromPaise(amountPaise),
+      watchlistLimit: BASIC_WATCHLIST_LIMIT,
     },
   });
 }
@@ -88,14 +90,7 @@ export async function PATCH(request: Request) {
     });
 
     const response = NextResponse.json({
-      user: {
-        id: refreshed.id,
-        name: refreshed.name,
-        email: refreshed.email,
-        role: refreshed.role,
-        tradingExperience: refreshed.trading_experience ?? '',
-        imageUrl: refreshed.image_url ?? '',
-      },
+      user: toPublicUser(refreshed),
     });
     setAuthCookie(response, token);
     return response;

@@ -1,6 +1,8 @@
 import { ZodError } from 'zod';
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { getSessionFromCookies } from '@/lib/auth/server-session';
+import { requirePremiumMembership } from '@/lib/membership/server';
 import { aiAnalysisSchema, quantamentalScoredResultSchema } from '@/lib/validations/stock-schema';
 import { calculateQuantamentalScore } from '@/lib/scoring-engine';
 import {
@@ -105,6 +107,13 @@ function buildCacheKey(rawTextPayload: string): string {
 
 export async function POST(request: Request) {
   try {
+    const session = await getSessionFromCookies();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const premiumGate = await requirePremiumMembership(session.sub);
+    if (premiumGate) return premiumGate;
+
     const rawPayload = await request.text();
     if (!rawPayload.trim()) {
       return NextResponse.json(

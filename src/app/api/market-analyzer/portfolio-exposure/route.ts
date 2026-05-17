@@ -2,6 +2,7 @@ import { ZodError } from 'zod';
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
+import { requirePremiumMembership } from '@/lib/membership/server';
 import { buildPortfolioExposurePrompt } from '@/lib/ai/market-analyzer-macro-prompt';
 import { extractJsonObject } from '@/lib/ai/stock-overview';
 import { isTrustedSameOriginRequest } from '@/lib/market-analyzer/api-guard';
@@ -19,6 +20,8 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const premiumGate = await requirePremiumMembership(session.sub);
+  if (premiumGate) return premiumGate;
   if (!isTrustedSameOriginRequest(request)) {
     return NextResponse.json({ error: 'Request failed verification checks' }, { status: 403 });
   }

@@ -17,6 +17,8 @@ import type {
   QuantamentalVerdict,
   ValuationRating,
 } from '@/lib/validations/stock-schema';
+import { MembershipUpgradePrompt } from '@/components/membership/MembershipUpgradePrompt';
+import { useMembership } from '@/hooks/useMembership';
 import { quantamentalScoredResultSchema } from '@/lib/validations/stock-schema';
 
 const SECTION_MAX = {
@@ -107,11 +109,12 @@ export default function StockAiOverviewSheet({
   companyName,
 }: StockAiOverviewSheetProps) {
   const queryClient = useQueryClient();
+  const { isPremium } = useMembership();
   const normalizedTicker = ticker.trim().toUpperCase();
   const q = useQuery({
     queryKey: ['ai', 'quantamental-overview', normalizedTicker],
     queryFn: () => fetchStockOverview(ticker, companyName),
-    enabled: open && normalizedTicker.length > 0,
+    enabled: open && normalizedTicker.length > 0 && isPremium,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
@@ -172,6 +175,8 @@ export default function StockAiOverviewSheet({
             <p className="text-sm text-gray-500">
               Pick a stock from the scanner list to see an AI overview.
             </p>
+          ) : !isPremium ? (
+            <MembershipUpgradePrompt reason="ai" className="mt-2" />
           ) : q.isPending ? (
             <div className="flex items-center gap-2 text-sm text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

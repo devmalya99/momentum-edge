@@ -2,6 +2,7 @@ import { compare } from 'bcryptjs';
 import { NextResponse } from 'next/server';
 import { loginSchema } from '@/lib/auth/schemas';
 import { signSessionToken, setAuthCookie } from '@/lib/auth/session';
+import { toPublicUser } from '@/lib/auth/public-user';
 import { getUserByEmail } from '@/lib/db/users';
 
 export async function POST(request: Request) {
@@ -31,16 +32,7 @@ export async function POST(request: Request) {
       name: user.name,
     });
 
-    const response = NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        tradingExperience: user.trading_experience ?? '',
-        imageUrl: user.image_url ?? '',
-      },
-    });
+    const response = NextResponse.json({ user: toPublicUser(user) });
     setAuthCookie(response, token);
     return response;
   } catch (error) {
