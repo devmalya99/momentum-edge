@@ -25,6 +25,7 @@ import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
 import { useMembership } from '@/hooks/useMembership';
+import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
 import { useMembershipUpgradeStore } from '@/store/useMembershipUpgradeStore';
 
@@ -54,6 +55,7 @@ export default function WatchlistWorkspace() {
   const addToWatchlist = useTradeStore((s) => s.addToWatchlist);
   const addManyToWatchlist = useTradeStore((s) => s.addManyToWatchlist);
   const { isPremium } = useMembership();
+  const { requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
   const openMembershipUpgrade = useMembershipUpgradeStore((s) => s.openMembershipUpgrade);
   const createWatchlistList = useTradeStore((s) => s.createWatchlistList);
   const renameWatchlistList = useTradeStore((s) => s.renameWatchlistList);
@@ -443,13 +445,17 @@ export default function WatchlistWorkspace() {
         <div className="flex shrink-0 items-start">
           <button
             type="button"
-            onClick={() => setAiSheetOpen(true)}
+            onClick={() => {
+              if (!selectedAiStock) return;
+              requirePremiumForAi(() => setAiSheetOpen(true));
+            }}
             disabled={!selectedAiStock}
             aria-label={
               selectedAiStock
                 ? `AI overview for ${selectedAiStock.ticker}`
                 : 'AI overview (select an equity stock first)'
             }
+            title={!isPremium ? 'Premium membership required for AI' : undefined}
             className="inline-flex items-center gap-2 rounded-xl border border-purple-400/30 bg-purple-500/10 px-3 py-2 text-xs font-semibold text-purple-100 hover:bg-purple-500/20 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
@@ -460,7 +466,7 @@ export default function WatchlistWorkspace() {
 
       <StockAiOverviewSheet
         open={aiSheetOpen}
-        onOpenChange={setAiSheetOpen}
+        onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}
         ticker={selectedAiStock?.ticker ?? ''}
         companyName={selectedAiStock?.companyName ?? ''}
       />

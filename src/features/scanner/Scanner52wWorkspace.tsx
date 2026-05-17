@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
+import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 
 function formatPrice(v: number | null): string {
   if (v == null) return '—';
@@ -73,6 +74,7 @@ export default function Scanner52wWorkspace() {
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [scanAnalysisOpen, setScanAnalysisOpen] = useState(false);
+  const { requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isScreenFocused, setIsScreenFocused] = useState(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible' && document.hasFocus(),
@@ -439,7 +441,10 @@ export default function Scanner52wWorkspace() {
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setScanAnalysisOpen(true)}
+              onClick={() => {
+                if (tvRows.length === 0) return;
+                requirePremiumForAi(() => setScanAnalysisOpen(true));
+              }}
               disabled={tvRows.length === 0}
               className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-200 transition-colors hover:bg-cyan-500/18 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -448,7 +453,10 @@ export default function Scanner52wWorkspace() {
             </button>
             <button
               type="button"
-              onClick={() => setAiSheetOpen(true)}
+              onClick={() => {
+                if (!selectedStock) return;
+                requirePremiumForAi(() => setAiSheetOpen(true));
+              }}
               disabled={!selectedStock}
               aria-label={selectedStock ? `AI overview for ${selectedStock.ticker}` : 'AI overview (select a stock first)'}
               className="inline-flex items-center gap-1.5 rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-200 transition-colors hover:bg-violet-500/18 disabled:cursor-not-allowed disabled:opacity-40"
@@ -513,13 +521,13 @@ export default function Scanner52wWorkspace() {
 
       <StockAiOverviewSheet
         open={aiSheetOpen}
-        onOpenChange={setAiSheetOpen}
+        onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}
         ticker={selectedStock?.ticker ?? ''}
         companyName={selectedStock?.companyName ?? ''}
       />
       <ScanAnalysisSheet
         open={scanAnalysisOpen}
-        onOpenChange={setScanAnalysisOpen}
+        onOpenChange={(open) => guardAiSheetOpen(open, setScanAnalysisOpen)}
         scannerName={scannerLabel}
         stocks={scanAnalysisStocks}
       />

@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMembership } from '@/hooks/useMembership';
 import { quantamentalScoresResponseSchema } from '@/lib/validations/stock-schema';
 
 export function quantamentalScoreTickerKey(ticker: string): string {
@@ -34,6 +35,7 @@ async function fetchAiStockOverviewScores(
 }
 
 export function useAiStockOverviewScoresQuery(tickers: string[]) {
+  const { isPremium } = useMembership();
   const normalizedTickers = useMemo(() => {
     const out = new Set<string>();
     for (const ticker of tickers) {
@@ -46,7 +48,7 @@ export function useAiStockOverviewScoresQuery(tickers: string[]) {
   const query = useQuery({
     queryKey: ['ai', 'quantamental-scores', normalizedTickers],
     queryFn: () => fetchAiStockOverviewScores(normalizedTickers),
-    enabled: normalizedTickers.length > 0,
+    enabled: isPremium && normalizedTickers.length > 0,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchInterval: () => {
