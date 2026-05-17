@@ -1,11 +1,15 @@
 export function getRazorpayKeyId(): string {
-  const key = process.env.RAZORPAY_KEY_ID?.trim() || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
+  const key =
+    process.env.RAZORPAY_KEY_ID?.trim() ||
+    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim() ||
+    process.env.RAZORPAY_TEST_API_KEY?.trim();
   if (!key) throw new Error('RAZORPAY_KEY_ID is not set');
   return key;
 }
 
 export function getRazorpayKeySecret(): string {
-  const secret = process.env.RAZORPAY_KEY_SECRET?.trim();
+  const secret =
+    process.env.RAZORPAY_KEY_SECRET?.trim() || process.env.RAZORPAY_TEST_KEY_SECRET?.trim();
   if (!secret) throw new Error('RAZORPAY_KEY_SECRET is not set');
   return secret;
 }
