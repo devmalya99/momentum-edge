@@ -1,6 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { fetchNseEquityIntraday } from '@/lib/nse-equity-intraday-client';
 import { fetchNseEquityHistorical } from '@/lib/nse-equity-historical-client';
 import { fetchNseIndexHistorical } from '@/lib/nse-index-historical-client';
+import type { NseEquityIntradayResponse } from '@/lib/nse-equity-intraday-client';
 
 export const NSE_CHART_STALE_MS = 5 * 60_000;
 
@@ -73,4 +75,25 @@ export async function prefetchNseChartHistorical(
   await queryClient.prefetchQuery({
     ...nseChartHistoricalQueryOptions(nse, seriesKind, range),
   });
+}
+
+export function nseEquityIntradayQueryKey(symbol: string) {
+  return ['nse-equity-intraday', symbol.trim().toUpperCase()] as const;
+}
+
+export function nseEquityIntradayQueryOptions(symbol: string) {
+  const nse = symbol.trim().toUpperCase();
+  return {
+    queryKey: nseEquityIntradayQueryKey(nse),
+    queryFn: (): Promise<NseEquityIntradayResponse> => fetchNseEquityIntraday(nse),
+    enabled: nse.length > 0,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  } as const;
+}
+
+export async function prefetchNseEquityIntraday(queryClient: QueryClient, symbol: string) {
+  const nse = symbol.trim().toUpperCase();
+  if (!nse) return;
+  await queryClient.prefetchQuery({ ...nseEquityIntradayQueryOptions(nse) });
 }

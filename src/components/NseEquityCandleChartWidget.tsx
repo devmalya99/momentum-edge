@@ -3,16 +3,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { init, dispose, type Chart } from 'klinecharts';
+import { aggregateIntradayMinutesTo1hKlines } from '@/lib/nse-equity-intraday-kline';
 import {
   aggregateNseDailyToKlines,
   CUSTOM_CANDLE_PERIOD_LABEL,
   flattenNseEquityHistoricalChunks,
   type CustomCandlePeriod,
+  type DailyCandlePeriod,
 } from '@/lib/nse-equity-historical-kline';
-import { defaultNseChartHistoryRange, nseChartHistoricalQueryOptions } from '@/lib/nse-chart-query';
+import {
+  defaultNseChartHistoryRange,
+  nseChartHistoricalQueryOptions,
+  nseEquityIntradayQueryOptions,
+} from '@/lib/nse-chart-query';
 import { Loader2 } from 'lucide-react';
 
-const PERIODS: CustomCandlePeriod[] = ['1d', '2d', '3d', '5d', '1w', '3w', '1m'];
+const DAILY_PERIODS: DailyCandlePeriod[] = ['1d', '2d', '3d', '5d', '1w', '3w', '1m'];
+const EQUITY_PERIODS: CustomCandlePeriod[] = ['1h', ...DAILY_PERIODS];
 
 type Props = {
   /** NSE equity symbol or index name (e.g. `NIFTY 50`) */
@@ -23,6 +30,8 @@ type Props = {
   /** Optional YYYY-MM-DD window; defaults to the last ~3 years */
   historyFrom?: string;
   historyTo?: string;
+  /** Initial timeframe (scanner defaults to 1H). */
+  defaultPeriod?: CustomCandlePeriod;
 };
 
 export default function NseEquityCandleChartWidget({
@@ -31,6 +40,7 @@ export default function NseEquityCandleChartWidget({
   className,
   historyFrom,
   historyTo,
+  defaultPeriod = '3d',
 }: Props) {
   const nse = symbol.trim().toUpperCase();
   const range = useMemo(() => {
@@ -38,21 +48,42 @@ export default function NseEquityCandleChartWidget({
     return { from: historyFrom ?? d.from, to: historyTo ?? d.to };
   }, [historyFrom, historyTo]);
 
-  const [period, setPeriod] = useState<CustomCandlePeriod>('3d');
+  const periodOptions = seriesKind === 'equity' ? EQUITY_PERIODS : DAILY_PERIODS;
+  const initialPeriod = periodOptions.includes(defaultPeriod) ? defaultPeriod : periodOptions[0]!;
+
+  const [period, setPeriod] = useState<CustomCandlePeriod>(initialPeriod);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
 
-  const histQuery = useQuery(nseChartHistoricalQueryOptions(nse, seriesKind, range));
+  const isIntraday1h = period === '1h' && seriesKind === 'equity';
+
+  const histQuery = useQuery({
+    ...nseChartHistoricalQueryOptions(nse, seriesKind, range),
+    enabled: !isIntraday1h,
+  });
+
+  const intradayQuery = useQuery({
+    ...nseEquityIntradayQueryOptions(nse),
+    enabled: isIntraday1h,
+  });
 
   const klines = useMemo(() => {
+    if (isIntraday1h) {
+      const minutes = intradayQuery.data?.minutes ?? [];
+      return aggregateIntradayMinutesTo1hKlines(minutes);
+    }
     const d = histQuery.data;
     if (!d) return [];
     const flat =
       d.seriesKind === 'index'
         ? d.bars
         : flattenNseEquityHistoricalChunks(d.pack.data);
-    return aggregateNseDailyToKlines(flat, period);
-  }, [histQuery.data, period]);
+    return aggregateNseDailyToKlines(flat, period as DailyCandlePeriod);
+  }, [histQuery.data, intradayQuery.data?.minutes, isIntraday1h, period]);
+
+  const isLoading = isIntraday1h ? intradayQuery.isLoading : histQuery.isLoading;
+  const isError = isIntraday1h ? intradayQuery.isError : histQuery.isError;
+  const queryError = isIntraday1h ? intradayQuery.error : histQuery.error;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -96,13 +127,13 @@ export default function NseEquityCandleChartWidget({
     chartRef.current = chart;
 
     chart.setSymbol({ ticker: nse, pricePrecision: 2, volumePrecision: 0 });
-    chart.setPeriod({ type: 'day', span: 1 });
+    chart.setPeriod(isIntraday1h ? { type: 'hour', span: 1 } : { type: 'day', span: 1 });
     chart.setDataLoader({
       getBars: ({ callback }) => {
         callback(klines, false);
       },
     });
-    if (seriesKind !== 'index') {
+    if (seriesKind !== 'index' && !isIntraday1h) {
       chart.createIndicator('VOL', false, { height: 96, minHeight: 72 });
     }
     chart.resize();
@@ -111,7 +142,7 @@ export default function NseEquityCandleChartWidget({
       dispose(chart);
       chartRef.current = null;
     };
-  }, [nse, klines, seriesKind]);
+  }, [nse, klines, seriesKind, isIntraday1h]);
 
   useEffect(() => {
     const ro = new ResizeObserver(() => {
@@ -123,47 +154,103 @@ export default function NseEquityCandleChartWidget({
   }, []);
 
   const errMsg =
-    histQuery.error instanceof Error ? histQuery.error.message : histQuery.isError ? 'Failed to load' : null;
+    queryError instanceof Error ? queryError.message : isError ? 'Failed to load' : null;
 
   return (
-    <div className={['flex h-full min-h-0 w-full min-w-0 flex-col gap-2', className].filter(Boolean).join(' ')}>
+    <ChartShell className={className}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Timeframe</span>
-        <div className="flex flex-wrap gap-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setPeriod(p)}
-              className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
-                period === p ? 'bg-blue-500/30 text-blue-100' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
-              }`}
-            >
-              {CUSTOM_CANDLE_PERIOD_LABEL[p]}
-            </button>
-          ))}
-        </div>
+        <PeriodButtonRow periodOptions={periodOptions} period={period} onSelect={setPeriod} />
       </div>
+      {isIntraday1h ? (
+        <p className="text-[10px] text-gray-500">
+          1H uses today&apos;s NSE session (minute prices). Daily timeframes use historical EOD data.
+        </p>
+      ) : null}
 
-      <div className="relative min-h-0 flex-1 w-full overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0b]">
-        {histQuery.isLoading ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-[#0a0a0b]/80 text-sm text-gray-400">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            Loading {nse}…
-          </div>
-        ) : null}
-        {errMsg && !histQuery.isLoading ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center px-4 text-center text-sm text-amber-300/90">
-            {errMsg}
-          </div>
-        ) : null}
-        {!histQuery.isLoading && !errMsg && klines.length === 0 ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-gray-500">
-            No historical rows for {nse}.
-          </div>
-        ) : null}
-        <div ref={containerRef} className="h-full min-h-[280px] w-full" />
-      </div>
+      <ChartFrame
+        isLoading={isLoading}
+        errMsg={errMsg}
+        symbol={nse}
+        isIntraday1h={isIntraday1h}
+        klinesEmpty={klines.length === 0}
+        containerRef={containerRef}
+      />
+    </ChartShell>
+  );
+}
+
+function ChartShell({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <div className={['flex h-full min-h-0 w-full min-w-0 flex-col gap-2', className].filter(Boolean).join(' ')}>
+      {children}
+    </div>
+  );
+}
+
+function PeriodButtonRow({
+  periodOptions,
+  period,
+  onSelect,
+}: {
+  periodOptions: CustomCandlePeriod[];
+  period: CustomCandlePeriod;
+  onSelect: (p: CustomCandlePeriod) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {periodOptions.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onSelect(p)}
+          className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            period === p ? 'bg-blue-500/30 text-blue-100' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+          }`}
+        >
+          {CUSTOM_CANDLE_PERIOD_LABEL[p]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChartFrame({
+  isLoading,
+  errMsg,
+  symbol,
+  isIntraday1h,
+  klinesEmpty,
+  containerRef,
+}: {
+  isLoading: boolean;
+  errMsg: string | null;
+  symbol: string;
+  isIntraday1h: boolean;
+  klinesEmpty: boolean;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div className="relative min-h-0 flex-1 w-full overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0b]">
+      {isLoading ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-[#0a0a0b]/80 text-sm text-gray-400">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading {symbol}…
+        </div>
+      ) : null}
+      {errMsg && !isLoading ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center px-4 text-center text-sm text-amber-300/90">
+          {errMsg}
+        </div>
+      ) : null}
+      {!isLoading && !errMsg && klinesEmpty ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-gray-500">
+          {isIntraday1h
+            ? `No intraday data for ${symbol} yet (market may be closed).`
+            : `No historical rows for ${symbol}.`}
+        </div>
+      ) : null}
+      <div ref={containerRef} className="h-full min-h-[280px] w-full" />
     </div>
   );
 }

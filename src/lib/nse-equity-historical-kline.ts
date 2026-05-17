@@ -1,7 +1,10 @@
 import type { EquityHistoricalData, EquityHistoricalInfo } from 'stock-nse-india';
 import type { KLineData } from 'klinecharts';
 
-export type CustomCandlePeriod = '1d' | '2d' | '3d' | '5d' | '1w' | '3w' | '1m';
+export type CustomCandlePeriod = '1h' | '1d' | '2d' | '3d' | '5d' | '1w' | '3w' | '1m';
+
+/** Periods built from NSE daily history (not intraday). */
+export type DailyCandlePeriod = Exclude<CustomCandlePeriod, '1h'>;
 
 export type NseDailyBar = {
   timestamp: number;
@@ -120,7 +123,7 @@ function bucketByCalendarMonth(sorted: NseDailyBar[]): KLineData[] {
  * - `2d` / `3d` / `5d` / `1w` / `3w`: rolling buckets of 2, 3, 5, and 15 **trading sessions** (`5d` and `1w` are equivalent five-session buckets).
  * - `1m`: calendar month (UTC month boundaries).
  */
-export function aggregateNseDailyToKlines(sorted: NseDailyBar[], period: CustomCandlePeriod): KLineData[] {
+export function aggregateNseDailyToKlines(sorted: NseDailyBar[], period: DailyCandlePeriod): KLineData[] {
   if (sorted.length === 0) return [];
   switch (period) {
     case '1d':
@@ -143,6 +146,7 @@ export function aggregateNseDailyToKlines(sorted: NseDailyBar[], period: CustomC
 }
 
 export const CUSTOM_CANDLE_PERIOD_LABEL: Record<CustomCandlePeriod, string> = {
+  '1h': '1H',
   '1d': '1D',
   '2d': '2D',
   '3d': '3D',

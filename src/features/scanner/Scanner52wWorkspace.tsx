@@ -711,6 +711,7 @@ export default function Scanner52wWorkspace() {
                   <NseEquityCandleChartWidget
                     key={chartNseSymbol}
                     symbol={chartNseSymbol}
+                    defaultPeriod="1h"
                     className="absolute inset-0 flex h-full min-h-0 w-full flex-col"
                   />
                 ) : chartMode === 'tradingview' ? (
