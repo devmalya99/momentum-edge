@@ -42,8 +42,9 @@ export default function Rules() {
         >
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Rule Name</label>
+              <label htmlFor="new-rule-name" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Rule Name</label>
               <input
+                id="new-rule-name"
                 type="text"
                 value={newRule.name}
                 onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}

@@ -14,20 +14,16 @@ import {
   quantamentalScoreTickerKey,
   useAiStockOverviewScoresQuery,
 } from '@/features/ai/useAiStockOverviewScoresQuery';
-import RelativeTurnoverFilterControl from '@/features/relative-turnover/RelativeTurnoverFilterControl';
-import TurnoverAccelerationBadge from '@/features/turnover-acceleration/TurnoverAccelerationBadge';
-import { useStockMetricsBackgroundQueue } from '@/features/stock-metrics/useStockMetricsBackgroundQueue';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
 import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
 import { useTradeStore } from '@/store/useTradeStore';
-import { useRelativeTurnoverStore } from '@/store/useRelativeTurnoverStore';
-import { useTurnoverAccelerationStore } from '@/store/useTurnoverAccelerationStore';
 import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
 import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 
@@ -104,8 +100,6 @@ export default function WatchlistWorkspace() {
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
-  const [minRelativeTurnoverPct, setMinRelativeTurnoverPct] = useState(0);
-  const [minTurnoverSurgePct, setMinTurnoverSurgePct] = useState(0);
 
   const symbolsForQuotes = useMemo(() => {
     const s = new Set<string>();
@@ -114,39 +108,13 @@ export default function WatchlistWorkspace() {
     }
     return [...s];
   }, [itemsForList]);
-  const aiScoreTickers = useMemo(
-    () => itemsForList.filter((item) => item.kind === 'equity').map((item) => item.symbol),
+  const equityTickers = useMemo(
+    () =>
+      itemsForList.flatMap((item) => (item.kind === 'equity' ? [item.symbol] : [])),
     [itemsForList],
   );
-  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(aiScoreTickers);
-  const technicalScoreTickers = useMemo(
-    () => itemsForList.filter((item) => item.kind === 'equity').map((item) => item.symbol),
-    [itemsForList],
-  );
-  const { hasReadyMetrics } = useStockMetricsBackgroundQueue(technicalScoreTickers);
-  const relativeStoreBySymbol = useRelativeTurnoverStore((s) => s.bySymbol);
-  const getValidRelativeMetric = useRelativeTurnoverStore((s) => s.getValidMetric);
-  const accelerationStoreBySymbol = useTurnoverAccelerationStore((s) => s.bySymbol);
-  const getValidAccelerationMetric = useTurnoverAccelerationStore((s) => s.getValidMetric);
-  const relativeTurnoverBySymbol = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof getValidRelativeMetric>>();
-    for (const ticker of technicalScoreTickers) {
-      const key = ticker.trim().toUpperCase();
-      const metric = getValidRelativeMetric(key);
-      if (metric) map.set(key, metric);
-    }
-    return map;
-  }, [technicalScoreTickers, getValidRelativeMetric, relativeStoreBySymbol]);
-  const turnoverAccelerationBySymbol = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof getValidAccelerationMetric>>();
-    for (const ticker of technicalScoreTickers) {
-      const key = ticker.trim().toUpperCase();
-      const metric = getValidAccelerationMetric(key);
-      if (metric) map.set(key, metric);
-    }
-    return map;
-  }, [technicalScoreTickers, getValidAccelerationMetric, accelerationStoreBySymbol]);
-
+  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(equityTickers);
+  const technicalScoreTickers = equityTickers;
   const quoteQueries = useQueries({
     queries: symbolsForQuotes.map((symbol) => ({
       queryKey: ['nse-equity-quote', symbol] as const,
@@ -215,6 +183,7 @@ export default function WatchlistWorkspace() {
     for (const tag of staticTags) map.set(tag.id, tag.label);
     return map;
   }, [staticTags]);
+  const activeTagFilterSet = useMemo(() => new Set(activeTagFilters), [activeTagFilters]);
   const toggleTagFilter = useCallback((tagId: string) => {
     setActiveTagFilters((prev) =>
       prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
@@ -223,48 +192,20 @@ export default function WatchlistWorkspace() {
   const matchesActiveTagFilter = useCallback(
     (symbol: string, kind: 'equity' | 'index') => {
       if (kind !== 'equity') return true;
-      if (activeTagFilters.length === 0) return true;
+      if (activeTagFilterSet.size === 0) return true;
       const tagIds = stockTagsByTicker.get(symbol.trim().toUpperCase()) ?? [];
       if (tagIds.length === 0) return true;
-      return tagIds.some((tagId) => activeTagFilters.includes(tagId));
+      for (const tagId of tagIds) {
+        if (activeTagFilterSet.has(tagId)) return true;
+      }
+      return false;
     },
-    [activeTagFilters, stockTagsByTicker],
-  );
-  const matchesRelativeTurnoverFilter = useCallback(
-    (symbol: string, kind: 'equity' | 'index') => {
-      if (kind !== 'equity') return true;
-      if (minRelativeTurnoverPct <= 0) return true;
-      const metric = relativeTurnoverBySymbol.get(symbol.trim().toUpperCase());
-      if (!metric) return false;
-      return metric.relativeTurnoverPct >= minRelativeTurnoverPct;
-    },
-    [minRelativeTurnoverPct, relativeTurnoverBySymbol],
-  );
-  const matchesTurnoverSurgeFilter = useCallback(
-    (symbol: string, kind: 'equity' | 'index') => {
-      if (kind !== 'equity') return true;
-      if (minTurnoverSurgePct <= 0) return true;
-      const metric = turnoverAccelerationBySymbol.get(symbol.trim().toUpperCase());
-      const surge = metric?.turnoverAccelerationPct;
-      if (surge == null || !Number.isFinite(surge)) return false;
-      return surge >= minTurnoverSurgePct;
-    },
-    [minTurnoverSurgePct, turnoverAccelerationBySymbol],
+    [activeTagFilterSet, stockTagsByTicker],
   );
   const filteredSortedWatchlist = useMemo(
     () =>
-      sortedWatchlist.filter(
-        (item) =>
-          matchesActiveTagFilter(item.symbol, item.kind) &&
-          matchesRelativeTurnoverFilter(item.symbol, item.kind) &&
-          matchesTurnoverSurgeFilter(item.symbol, item.kind),
-      ),
-    [
-      sortedWatchlist,
-      matchesActiveTagFilter,
-      matchesRelativeTurnoverFilter,
-      matchesTurnoverSurgeFilter,
-    ],
+      sortedWatchlist.filter((item) => matchesActiveTagFilter(item.symbol, item.kind)),
+    [sortedWatchlist, matchesActiveTagFilter],
   );
   const selectedItemId = useMemo(() => {
     if (filteredSortedWatchlist.length === 0) return '';
@@ -303,6 +244,24 @@ export default function WatchlistWorkspace() {
       selectedWatchlistItem.kind === 'index' ? 'index' : 'equity',
     );
   }, [selectedWatchlistItem]);
+
+  const chartPrefetchItems = useMemo(
+    () =>
+      filteredSortedWatchlist.map((item) => ({
+        symbol: item.symbol.trim().toUpperCase(),
+        seriesKind: item.kind === 'index' ? ('index' as const) : ('equity' as const),
+      })),
+    [filteredSortedWatchlist],
+  );
+  const selectedChartIndex = useMemo(
+    () => filteredSortedWatchlist.findIndex((item) => item.id === selectedItemId),
+    [filteredSortedWatchlist, selectedItemId],
+  );
+  useAdjacentNseChartPrefetch({
+    items: chartPrefetchItems,
+    currentIndex: selectedChartIndex,
+    enabled: chartMode === 'kline' && !!selectedWatchlistItem,
+  });
 
   const replaceWatchlistUrl = useCallback(
     (listId: string, itemId: string) => {
@@ -568,7 +527,7 @@ export default function WatchlistWorkspace() {
             <div className="flex flex-wrap items-center gap-1">
               <span className="mr-1 text-[9px] font-bold uppercase tracking-wide text-gray-600">Tags</span>
               {staticTags.map((tag) => {
-                const active = activeTagFilters.includes(tag.id);
+                const active = activeTagFilterSet.has(tag.id);
                 return (
                   <button
                     key={`watchlist-tag-filter-${tag.id}`}
@@ -581,18 +540,6 @@ export default function WatchlistWorkspace() {
                 );
               })}
             </div>
-            <RelativeTurnoverFilterControl
-              label="Min 30D Turnover/MCap"
-              value={minRelativeTurnoverPct}
-              onChange={setMinRelativeTurnoverPct}
-            />
-            <RelativeTurnoverFilterControl
-              label="Min Vol Surge"
-              value={minTurnoverSurgePct}
-              onChange={setMinTurnoverSurgePct}
-              max={500}
-              step={1}
-            />
             <div className="relative z-20">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"
@@ -657,7 +604,7 @@ export default function WatchlistWorkspace() {
                           title={already ? 'Already in list' : 'Add index and constituents'}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => void handleAddIndexHit(hit)}
-                          className="shrink-0 rounded-lg border border-white/10 p-1.5 text-gray-400 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="shrink-0 rounded-lg border border-white/10 p-1.5 text-white/60 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Plus className="h-3.5 w-3.5" aria-hidden />
                         </button>
@@ -689,7 +636,7 @@ export default function WatchlistWorkspace() {
                           title={already ? 'Already in list' : 'Add to watchlist'}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => void handleAddEquityHit(hit)}
-                          className="shrink-0 rounded-lg border border-white/10 p-1.5 text-gray-400 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="shrink-0 rounded-lg border border-white/10 p-1.5 text-white/60 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Plus className="h-3.5 w-3.5" aria-hidden />
                         </button>
@@ -713,7 +660,6 @@ export default function WatchlistWorkspace() {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
                   const quantamentalTickerKey = quantamentalScoreTickerKey(item.symbol);
-                  const readyForInteraction = item.kind === 'index' ? true : hasReadyMetrics(symU);
                   const qi = symToQuoteIdx.get(symU);
                   const q = qi != null ? quoteQueries[qi] : undefined;
                   const pc = item.kind === 'equity' ? pChangeBySymbol.get(symU) : undefined;
@@ -740,16 +686,13 @@ export default function WatchlistWorkspace() {
                     <li key={item.id}>
                       <div
                         className={`flex items-start gap-2 rounded-2xl border px-3 py-3 transition-colors ${
-                          readyForInteraction
-                            ? isSelected
+                          isSelected
                             ? 'border-blue-500/40 bg-blue-500/10 text-white'
                             : 'border-transparent bg-transparent text-gray-300 hover:border-white/10 hover:bg-white/5'
-                            : 'border-transparent bg-transparent text-gray-400 opacity-55'
                         }`}
                       >
                         <button
                           type="button"
-                          disabled={!readyForInteraction}
                           onClick={() => onPickWatchlistRow(item.id)}
                           className="min-w-0 flex-1 text-left disabled:cursor-not-allowed"
                         >
@@ -791,32 +734,17 @@ export default function WatchlistWorkspace() {
                             </span>
                           </div>
                           <div className="mt-0.5 truncate text-[11px] text-gray-500">{item.companyName}</div>
-                          {item.kind === 'equity' ? (
-                            <div className="mt-1 flex items-center gap-2">
-                              <span className="text-[10px] font-semibold text-cyan-300">
-                                30D Turnover/MCap:{' '}
-                                {relativeTurnoverBySymbol
-                                  .get(symU)
-                                  ?.relativeTurnoverPct.toFixed(2)
-                                  .concat('%') ?? '—'}
-                              </span>
-                              <TurnoverAccelerationBadge
-                                value={turnoverAccelerationBySymbol.get(symU)?.turnoverAccelerationPct}
-                              />
-                            </div>
-                          ) : null}
                           <div className="mt-1 font-mono text-[10px] text-gray-600">
                             {item.kind === 'index' ? 'INDEX' : toTradingViewSymbol(item.symbol)}
                           </div>
                         </button>
                         <button
                           type="button"
-                          disabled={!readyForInteraction}
                           onClick={() => {
                             void removeFromWatchlist(item.id);
                           }}
                           aria-label={`Remove ${item.symbol} from watchlist`}
-                          className="shrink-0 rounded-lg border border-white/10 p-1 text-gray-500 transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="shrink-0 rounded-lg border border-white/10 p-1 text-white/60 transition-colors hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         </button>

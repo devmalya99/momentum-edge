@@ -104,7 +104,9 @@ function groupByIndustry(items: AnalysedScanItem[]): IndustryGroup[] {
       });
     }
   }
-  return [...groups.values()].sort((a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key));
+  return [...groups.values()].toSorted(
+    (a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key),
+  );
 }
 
 async function fetchStockNews(symbol: string): Promise<StockNewsItem[]> {
@@ -172,23 +174,21 @@ export default function ScanAnalysisSheet({
   const normalizedSearch = searchText.trim().toUpperCase();
   const filteredGroups = useMemo(() => {
     if (!normalizedSearch) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        items: group.items.filter((item) => {
-          const haystack = [
-            item.symbol,
-            item.name,
-            item.segment,
-            item.industry,
-            item.sector,
-          ]
-            .join(' ')
-            .toUpperCase();
-          return haystack.includes(normalizedSearch);
-        }),
-      }))
-      .filter((group) => group.items.length > 0);
+    return groups.flatMap((group) => {
+      const items = group.items.filter((item) => {
+        const haystack = [
+          item.symbol,
+          item.name,
+          item.segment,
+          item.industry,
+          item.sector,
+        ]
+          .join(' ')
+          .toUpperCase();
+        return haystack.includes(normalizedSearch);
+      });
+      return items.length > 0 ? [{ ...group, items }] : [];
+    });
   }, [groups, normalizedSearch]);
 
   const onToggleNews = useCallback(async (item: AnalysedScanItem) => {
@@ -276,7 +276,7 @@ export default function ScanAnalysisSheet({
               <SkeletonAnalysis />
             </div>
           ) : q.isError ? (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-gray-300">
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
               <div className="space-y-2">
                 <p>{q.error instanceof Error ? q.error.message : 'Failed to analyse scan.'}</p>

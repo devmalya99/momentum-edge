@@ -55,6 +55,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const wideContent =
     pathname === '/stock-charts' || pathname === '/52w-scanner' || pathname === '/watchlist';
+  const fullHeightWorkspace = pathname === '/52w-scanner';
   const forceMinimalSidebar = useMemo(
     () => pathname === '/52w-scanner' || pathname === '/watchlist',
     [pathname],
@@ -169,10 +170,12 @@ export default function Layout({ children }: LayoutProps) {
           sidebarExpanded ? 'pl-64' : 'pl-20',
         )}
       >
-        <div
+        <motion.div
           className={cn(
-            'mx-auto w-full px-6 py-8',
-            wideContent ? 'max-w-[min(100%,1820px)]' : 'max-w-7xl',
+            'mx-auto w-full',
+            fullHeightWorkspace
+              ? 'flex h-dvh max-w-[min(100%,1820px)] flex-col px-6 py-0'
+              : cn('px-6 py-8', wideContent ? 'max-w-[min(100%,1820px)]' : 'max-w-7xl'),
           )}
         >
           <AnimatePresence mode="wait">
@@ -182,11 +185,12 @@ export default function Layout({ children }: LayoutProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
+              className={fullHeightWorkspace ? 'flex min-h-0 flex-1 flex-col' : undefined}
             >
               {children}
             </motion.div>
           </AnimatePresence>
-        </div>
+        </motion.div>
       </main>
     </div>
   );

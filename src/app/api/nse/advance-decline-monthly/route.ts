@@ -82,8 +82,11 @@ export async function GET(request: Request) {
     const allEmpty = months.every((m) => m.data.length === 0);
 
     if (allEmpty) {
-      const msg =
-        months.map((m) => m.error).filter(Boolean).join(' | ') || 'No data returned.';
+      const errors: string[] = [];
+      for (const m of months) {
+        if (m.error) errors.push(m.error);
+      }
+      const msg = errors.join(' | ') || 'No data returned.';
       return NextResponse.json(
         { error: msg, months, calendarYear },
         { status: 502 },

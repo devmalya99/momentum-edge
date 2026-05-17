@@ -27,6 +27,22 @@ export type NeonAdDailyRow = {
   declines: number;
 };
 
+const IST_DATE_PARTS = { timeZone: 'Asia/Kolkata' } as const;
+const IST_YEAR_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  year: 'numeric',
+});
+const IST_MONTH_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  month: '2-digit',
+});
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 function toFiniteNumber(v: unknown): number | null {
   if (v == null) return null;
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -38,34 +54,17 @@ function toFiniteNumber(v: unknown): number | null {
 }
 
 function formatDateIst(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  return IST_DATE_FORMAT.format(d);
 }
 
 function currentCalendarYearIst(): number {
-  return parseInt(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-    }).format(new Date()),
-    10,
-  );
+  return parseInt(IST_YEAR_FORMAT.format(new Date()), 10);
 }
 
 function isTradeDateInCurrentMonthYearIst(tradeDate: string): boolean {
   const now = new Date();
-  const y = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-  }).format(now);
-  const m = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    month: '2-digit',
-  }).format(now);
+  const y = IST_YEAR_FORMAT.format(now);
+  const m = IST_MONTH_FORMAT.format(now);
   return tradeDate.startsWith(`${y}-${m}-`);
 }
 
@@ -149,7 +148,7 @@ export function buildAdRatioSeries(
 
   let chartBase: SessionRow[];
   if (neonRows.length === 0) {
-    chartBase = [...nseRows].sort((a, b) => a.sortKey - b.sortKey);
+    chartBase = nseRows.toSorted((a, b) => a.sortKey - b.sortKey);
   } else {
     const byTradeDate = new Map<string, SessionRow>();
     for (const p of nseRows) {

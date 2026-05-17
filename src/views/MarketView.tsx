@@ -90,6 +90,22 @@ type NeonDailyRow = {
   declines: number;
 };
 
+const IST_DATE_PARTS = { timeZone: 'Asia/Kolkata' } as const;
+const IST_YEAR_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  year: 'numeric',
+});
+const IST_MONTH_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  month: '2-digit',
+});
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  ...IST_DATE_PARTS,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 /** Postgres / JSON sometimes returns numerics as strings. */
 function toFiniteNumber(v: unknown): number | null {
   if (v == null) return null;
@@ -122,36 +138,19 @@ function normalizeNeonApiRows(raw: unknown): NeonDailyRow[] {
 }
 
 function currentCalendarYearIst(): number {
-  return parseInt(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-    }).format(new Date()),
-    10,
-  );
+  return parseInt(IST_YEAR_FORMAT.format(new Date()), 10);
 }
 
 /** True if `tradeDate` (YYYY-MM-DD) falls in the current Asia/Kolkata calendar month. */
 function isTradeDateInCurrentMonthYearIst(tradeDate: string): boolean {
   const now = new Date();
-  const y = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-  }).format(now);
-  const m = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    month: '2-digit',
-  }).format(now);
+  const y = IST_YEAR_FORMAT.format(now);
+  const m = IST_MONTH_FORMAT.format(now);
   return tradeDate.startsWith(`${y}-${m}-`);
 }
 
 function formatDateIst(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  return IST_DATE_FORMAT.format(d);
 }
 
 function parseHolidayDate(value: string): Date | null {
@@ -409,7 +408,7 @@ export default function MarketView() {
         throw new Error(msg);
       }
       const rows = Array.isArray(payload?.holidays) ? (payload.holidays as Holiday[]) : [];
-      const sorted = [...rows].sort((a, b) => {
+      const sorted = rows.toSorted((a, b) => {
         const da = parseHolidayDate(a.tradingDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
         const db = parseHolidayDate(b.tradingDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
         return da - db;
@@ -589,14 +588,15 @@ export default function MarketView() {
   }, [chartYear, historyMonths]);
 
   const nearestTradingHoliday = useMemo(() => {
-    const now = new Date();
-    const upcoming = [...tradingHolidays]
-      .map((h) => {
-        const d = parseHolidayDate(h.tradingDate);
-        return d ? { holiday: h, ts: d.getTime() } : null;
-      })
-      .filter((x): x is { holiday: Holiday; ts: number } => x != null && x.ts >= now.getTime())
-      .sort((a, b) => a.ts - b.ts);
+    const now = Date.now();
+    const upcoming: { holiday: Holiday; ts: number }[] = [];
+    for (const h of tradingHolidays) {
+      const d = parseHolidayDate(h.tradingDate);
+      if (!d) continue;
+      const ts = d.getTime();
+      if (ts >= now) upcoming.push({ holiday: h, ts });
+    }
+    upcoming.sort((a, b) => a.ts - b.ts);
     return upcoming[0]?.holiday ?? null;
   }, [tradingHolidays]);
 

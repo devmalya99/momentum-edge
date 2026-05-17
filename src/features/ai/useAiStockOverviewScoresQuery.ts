@@ -34,17 +34,14 @@ async function fetchAiStockOverviewScores(
 }
 
 export function useAiStockOverviewScoresQuery(tickers: string[]) {
-  const normalizedTickers = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          tickers
-            .map((ticker) => quantamentalScoreTickerKey(ticker))
-            .filter((ticker) => ticker.length > 0),
-        ),
-      ),
-    [tickers],
-  );
+  const normalizedTickers = useMemo(() => {
+    const out = new Set<string>();
+    for (const ticker of tickers) {
+      const key = quantamentalScoreTickerKey(ticker);
+      if (key) out.add(key);
+    }
+    return [...out];
+  }, [tickers]);
 
   const query = useQuery({
     queryKey: ['ai', 'quantamental-scores', normalizedTickers],

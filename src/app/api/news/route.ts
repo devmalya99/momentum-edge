@@ -27,13 +27,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const endpoint = new URL('https://news-mediator.tradingview.com/public/view/v1/symbol');
-    endpoint.searchParams.append('filter', 'lang:en');
-    endpoint.searchParams.append('filter', `symbol:${exchange}:${ticker}`);
-    endpoint.searchParams.append('client', 'overview');
-    endpoint.searchParams.append('user_prostatus', 'non_pro');
+    const query = new URLSearchParams([
+      ['filter', 'lang:en'],
+      ['filter', `symbol:${exchange}:${ticker}`],
+      ['client', 'overview'],
+      ['user_prostatus', 'non_pro'],
+    ]);
+    const endpoint = `https://news-mediator.tradingview.com/public/view/v1/symbol?${query}`;
 
-    const res = await fetch(endpoint.toString(), {
+    const res = await fetch(endpoint, {
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -46,9 +48,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch news' }, { status: 502 });
     }
 
-    const items: StockNewsItem[] = (payload.items ?? [])
-      .slice(0, 5)
-      .map((item, idx) => ({
+    const items: StockNewsItem[] = [];
+    for (const [idx, item] of (payload.items ?? []).slice(0, 5).entries()) {
+      const link = typeof item.link === 'string' ? item.link : '';
+      if (!link.startsWith('http')) continue;
+      items.push({
         id:
           typeof item.id === 'string' && item.id.trim()
             ? item.id
@@ -57,9 +61,9 @@ export async function GET(request: Request) {
           typeof item.title === 'string' && item.title.trim()
             ? item.title.trim()
             : 'Untitled',
-        link: typeof item.link === 'string' ? item.link : '',
-      }))
-      .filter((item) => item.link.startsWith('http'));
+        link,
+      });
+    }
 
     const validated = stockNewsApiResponseSchema.parse({ items });
     return NextResponse.json(validated);

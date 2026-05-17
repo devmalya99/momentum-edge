@@ -79,8 +79,9 @@ export default function Settings() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Total Trading Capital ($)</label>
+              <label htmlFor="settings-total-capital" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Total Trading Capital ($)</label>
               <input
+                id="settings-total-capital"
                 type="number"
                 min={0}
                 value={capitalInput}
@@ -112,8 +113,9 @@ export default function Settings() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Maximum Risk Per Trade (%)</label>
+              <label htmlFor="settings-risk-percent" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Maximum Risk Per Trade (%)</label>
               <input
+                id="settings-risk-percent"
                 type="number"
                 value={settings.riskPerTradePercent}
                 onChange={(e) => updateSettings({ riskPerTradePercent: parseFloat(e.target.value) })}
@@ -132,10 +134,11 @@ export default function Settings() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+              <label htmlFor="settings-passing-score" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 Passing Score (%)
               </label>
               <input
+                id="settings-passing-score"
                 type="number"
                 min={0}
                 max={100}
@@ -149,11 +152,12 @@ export default function Settings() {
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <label htmlFor="settings-new-checklist-rule" className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                 Checklist Rules
               </label>
               <div className="flex gap-2">
                 <input
+                  id="settings-new-checklist-rule"
                   type="text"
                   value={newChecklistRule}
                   onChange={(e) => setNewChecklistRule(e.target.value)}
@@ -217,8 +221,9 @@ export default function Settings() {
                 </button>
                 
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Type Name</label>
+                  <label htmlFor={`trade-type-name-${type.id}`} className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Type Name</label>
                   <input
+                    id={`trade-type-name-${type.id}`}
                     type="text"
                     value={type.name}
                     onChange={(e) => updateTradeType(type.id, { name: e.target.value })}
@@ -229,8 +234,9 @@ export default function Settings() {
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Min. Holding Period</label>
+                    <label htmlFor={`trade-type-hold-${type.id}`} className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Min. Holding Period</label>
                     <input
+                      id={`trade-type-hold-${type.id}`}
                       type="text"
                       value={type.minHoldingPeriod || ''}
                       onChange={(e) => updateTradeType(type.id, { minHoldingPeriod: e.target.value })}
@@ -239,8 +245,9 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Expected Return</label>
+                    <label htmlFor={`trade-type-return-${type.id}`} className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Expected Return</label>
                     <input
+                      id={`trade-type-return-${type.id}`}
                       type="text"
                       value={type.expectedReturn || ''}
                       onChange={(e) => updateTradeType(type.id, { expectedReturn: e.target.value })}
@@ -251,8 +258,9 @@ export default function Settings() {
                 </div>
                 
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Description / Rules</label>
+                  <label htmlFor={`trade-type-desc-${type.id}`} className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Description / Rules</label>
                   <textarea
+                    id={`trade-type-desc-${type.id}`}
                     value={type.description || ''}
                     onChange={(e) => updateTradeType(type.id, { description: e.target.value })}
                     className="w-full bg-white/5 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500/50 min-h-[60px]"

@@ -11,13 +11,15 @@ export async function GET(request: Request) {
       screen:
         screen === 'at-all-time-high'
           ? 'at-all-time-high'
-          : screen === 'new-trend'
-            ? 'new-trend'
-            : screen === 'new-monthly-high'
-              ? 'new-monthly-high'
-              : screen === '52h'
-                ? '52h'
-                : 'monthly',
+          : screen === 'strong-w-close'
+            ? 'strong-w-close'
+            : screen === 'new-trend'
+              ? 'new-trend'
+              : screen === 'new-monthly-high'
+                ? 'new-monthly-high'
+                : screen === '52h'
+                  ? '52h'
+                  : 'monthly',
     });
     return NextResponse.json(data);
   } catch (e) {

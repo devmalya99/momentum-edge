@@ -415,7 +415,7 @@ export default function Entry() {
             
             <div className="space-y-4">
               <div ref={symbolSearchWrapRef} className="relative">
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+                <label htmlFor="entry-symbol" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
                   Stock symbol (NSE)
                 </label>
                 <div className="relative">
@@ -424,6 +424,7 @@ export default function Entry() {
                     aria-hidden
                   />
                   <input
+                    id="entry-symbol"
                     type="text"
                     autoComplete="off"
                     autoCorrect="off"
@@ -509,7 +510,7 @@ export default function Entry() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Trade Type</label>
+                <span className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Trade Type</span>
                 <div className="grid grid-cols-3 gap-2">
                   {settings.tradeTypes?.map((t) => (
                     <div key={t.id} className="relative group">
@@ -551,8 +552,9 @@ export default function Entry() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Entry Price</label>
+                  <label htmlFor="entry-price" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Entry Price</label>
                   <input
+                    id="entry-price"
                     type="number"
                     value={entryPrice || ''}
                     onChange={(e) => {
@@ -563,10 +565,11 @@ export default function Entry() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="entry-stop-loss" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
                     Stop loss price
                   </label>
                   <input
+                    id="entry-stop-loss"
                     type="number"
                     value={stopLoss || ''}
                     onChange={(e) => {
@@ -581,10 +584,11 @@ export default function Entry() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="entry-stop-loss-pct" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
                     Stoploss percentage
                   </label>
                   <input
+                    id="entry-stop-loss-pct"
                     type="number"
                     min={0.01}
                     max={99}
@@ -599,10 +603,11 @@ export default function Entry() {
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+                  <label htmlFor="entry-target-gain-pct" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
                     Target gain %
                   </label>
                   <input
+                    id="entry-target-gain-pct"
                     type="number"
                     min={0.01}
                     step={0.01}
@@ -618,8 +623,9 @@ export default function Entry() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Position Size (Shares)</label>
+                <label htmlFor="entry-position-size" className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Position Size (Shares)</label>
                 <input
+                  id="entry-position-size"
                   type="number"
                   value={positionSize || ''}
                   onChange={(e) => setPositionSize(parseFloat(e.target.value))}
@@ -629,9 +635,9 @@ export default function Entry() {
 
               <div className="rounded-2xl border border-white/10 bg-[#0a0a0b] p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
                     Is this an MTF trade?
-                  </label>
+                  </span>
                   <button
                     type="button"
                     onClick={() => setIsMtfTrade((prev) => !prev)}
@@ -647,10 +653,11 @@ export default function Entry() {
                 {isMtfTrade ? (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                      <label htmlFor="entry-mtf-leverage" className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
                         Leverage (1x - 5x)
                       </label>
                       <input
+                        id="entry-mtf-leverage"
                         type="text"
                         value={mtfLeverageStr}
                         onChange={(e) => setMtfLeverageStr(e.target.value)}
@@ -659,10 +666,11 @@ export default function Entry() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                      <label htmlFor="entry-mtf-hold-days" className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
                         Planned hold days
                       </label>
                       <input
+                        id="entry-mtf-hold-days"
                         type="number"
                         min={1}
                         value={mtfPlannedDaysStr}
@@ -671,10 +679,11 @@ export default function Entry() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                      <label htmlFor="entry-mtf-interest" className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
                         Interest rate (% p.a.)
                       </label>
                       <input
+                        id="entry-mtf-interest"
                         type="number"
                         min={0}
                         step={0.01}

@@ -51,10 +51,12 @@ export function buildGraphChartTypeCandidates(
   if (!trimmed) return [];
 
   const out: string[] = [];
+  const seen = new Set<string>();
   const add = (value: string | undefined) => {
     const v = value?.trim();
-    if (!v) return;
-    if (!out.includes(v)) out.push(v);
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    out.push(v);
   };
 
   add(explicitChartType);

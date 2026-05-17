@@ -142,13 +142,12 @@ export async function listAiStockOverviewScores(
   tickers: string[],
 ): Promise<AiStockOverviewScoreRow[]> {
   await ensureAiStockOverviewCacheTable();
-  const normalized = Array.from(
-    new Set(
-      tickers
-        .map((ticker) => ticker.trim().toUpperCase())
-        .filter((ticker) => ticker.length > 0),
-    ),
-  );
+  const normalizedSet = new Set<string>();
+  for (const ticker of tickers) {
+    const key = ticker.trim().toUpperCase();
+    if (key) normalizedSet.add(key);
+  }
+  const normalized = [...normalizedSet];
   if (normalized.length === 0) return [];
   const sql = getNeonSql();
   const rows = await sql`

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { MotionProvider } from '@/components/MotionProvider';
 import { QueryProvider } from '@/components/QueryProvider';
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body>
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <MotionProvider>{children}</MotionProvider>
+        </QueryProvider>
       </body>
     </html>
   );

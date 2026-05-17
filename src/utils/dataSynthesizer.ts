@@ -47,15 +47,23 @@ export type TimeWindowFlags = {
   isWeekendRisk: boolean;
 };
 
+const IST_WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  weekday: 'short',
+});
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 /** IST calendar context for monthly expiry and Thu/Fri weekend risk. */
 export function evaluateTimeWindows(targetDate: Date = new Date()): TimeWindowFlags {
-  const ist = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-  }).formatToParts(targetDate);
+  const ist = IST_WEEKDAY_FORMAT.formatToParts(targetDate);
 
   const year = Number(ist.find((p) => p.type === 'year')?.value ?? 0);
   const month = Number(ist.find((p) => p.type === 'month')?.value ?? 1);
@@ -71,12 +79,7 @@ export function evaluateTimeWindows(targetDate: Date = new Date()): TimeWindowFl
 }
 
 function formatAsOfIst(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  return IST_DATE_FORMAT.format(d);
 }
 
 function buildEmaDeltaSeries(

@@ -19,10 +19,10 @@ function parseOptionalNum(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const INR_FORMAT = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+
 function formatInr(value: number): string {
-  return `₹${new Intl.NumberFormat('en-IN', {
-    maximumFractionDigits: 0,
-  }).format(Math.round(value))}`;
+  return `₹${INR_FORMAT.format(Math.round(value))}`;
 }
 
 export function PositionSizeCalculatorCard() {

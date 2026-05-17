@@ -1,0 +1,166 @@
+{
+  "columns": [
+    "ticker-view",
+    "close",
+    "type",
+    "typespecs",
+    "pricescale",
+    "minmov",
+    "fractional",
+    "minmove2",
+    "currency",
+    "change|1W",
+    "relative_volume_10d_calc|1W",
+    "earnings_per_share_diluted_yoy_growth_ttm",
+    "Value.Traded",
+    "fundamental_currency_code",
+    "ROC",
+    "ROC|1W",
+    "RSI5",
+    "Perf.W",
+    "ROC|1M"
+  ],
+  "filter": [
+    {
+      "left": "Perf.W",
+      "operation": "greater",
+      "right": 0
+    },
+    {
+      "left": "AvgValue.Traded_10d",
+      "operation": "greater",
+      "right": 10000000
+    },
+    {
+      "left": "ROC",
+      "operation": "greater",
+      "right": 4
+    },
+    {
+      "left": "close|1W",
+      "operation": "in_range%",
+      "right": ["high|1W", 0.96, 1]
+    },
+    {
+      "left": "market_cap_basic",
+      "operation": "egreater",
+      "right": 20000000000
+    },
+    {
+      "left": "ROC|1W",
+      "operation": "greater",
+      "right": 3
+    },
+    {
+      "left": "is_primary",
+      "operation": "equal",
+      "right": true
+    }
+  ],
+  "ignore_unknown_fields": false,
+  "options": {
+    "lang": "en"
+  },
+  "range": [0, 100],
+  "sort": {
+    "sortBy": "ROC",
+    "sortOrder": "asc"
+  },
+  "markets": ["india"],
+  "filter2": {
+    "operator": "and",
+    "operands": [
+      {
+        "operation": {
+          "operator": "or",
+          "operands": [
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "stock"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has",
+                      "right": ["common"]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "stock"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has",
+                      "right": ["preferred"]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "dr"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "operation": {
+                "operator": "and",
+                "operands": [
+                  {
+                    "expression": {
+                      "left": "type",
+                      "operation": "equal",
+                      "right": "fund"
+                    }
+                  },
+                  {
+                    "expression": {
+                      "left": "typespecs",
+                      "operation": "has_none_of",
+                      "right": ["etf", "mutual"]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "expression": {
+          "left": "typespecs",
+          "operation": "has_none_of",
+          "right": ["pre-ipo"]
+        }
+      }
+    ]
+  }
+}

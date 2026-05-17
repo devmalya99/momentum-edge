@@ -159,13 +159,12 @@ type RawScoreRow = {
 
 export async function listAiQuantamentalScores(tickers: string[]): Promise<AiQuantamentalScoreRow[]> {
   await ensureAiQuantamentalCacheTable();
-  const normalized = Array.from(
-    new Set(
-      tickers
-        .map((ticker) => normalizeTicker(ticker))
-        .filter((ticker): ticker is string => Boolean(ticker && ticker.length > 0)),
-    ),
-  );
+  const normalizedSet = new Set<string>();
+  for (const ticker of tickers) {
+    const key = normalizeTicker(ticker);
+    if (key) normalizedSet.add(key);
+  }
+  const normalized = [...normalizedSet];
   if (normalized.length === 0) return [];
   const sql = getNeonSql();
   const rows = await sql`

@@ -64,7 +64,10 @@ export async function prefetchIndexScores(
   const shared = await fetchSharedMarketSlices();
   const scores: Partial<Record<TargetIndex, IndexScoreEntry>> = { ...seed };
 
-  const pending = MARKET_ANALYZER_INDEXES.map((e) => e.id).filter((id) => !scores[id]);
+  const pending: TargetIndex[] = [];
+  for (const { id } of MARKET_ANALYZER_INDEXES) {
+    if (!scores[id]) pending.push(id);
+  }
 
   let cursor = 0;
   async function worker(): Promise<void> {

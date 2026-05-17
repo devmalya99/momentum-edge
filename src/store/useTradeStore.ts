@@ -120,9 +120,14 @@ interface TradeState {
 }
 
 function createChecklistState(criteria: string[]): Record<string, boolean> {
-  const normalized = criteria
-    .map((item) => item.trim())
-    .filter((item, idx, arr) => item.length > 0 && arr.indexOf(item) === idx);
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const item of criteria) {
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
 
   if (normalized.length === 0) return {};
 
@@ -132,7 +137,7 @@ function createChecklistState(criteria: string[]): Record<string, boolean> {
   }, {});
 }
 
-export const IMPORTED_HOLDINGS_NOTE = 'Imported from broker holdings upload.';
+const IMPORTED_HOLDINGS_NOTE = 'Imported from broker holdings upload.';
 
 export function isImportedHoldingTrade(trade: Trade): boolean {
   return trade.notes === IMPORTED_HOLDINGS_NOTE;
@@ -185,12 +190,11 @@ export const useTradeStore = create<TradeState>((set, get) => ({
       if (res.ok) {
         const payload = (await res.json()) as { rules?: Rule[] };
         const serverRulesRaw = Array.isArray(payload.rules) ? payload.rules : [];
-        const serverRules = serverRulesRaw
-          .map((rule) => ({
-            ...rule,
-            maxScore: 1,
-          }))
-          .filter((rule) => rule.id && rule.name);
+        const serverRules: Rule[] = [];
+        for (const rule of serverRulesRaw) {
+          if (!rule.id || !rule.name) continue;
+          serverRules.push({ ...rule, maxScore: 1 });
+        }
         const tx = db.transaction('rules', 'readwrite');
         await tx.store.clear();
         for (const rule of serverRules) {
@@ -446,7 +450,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     await tx.done;
     
     set((state) => ({ 
-      trades: [...newTrades, ...state.trades].sort((a, b) => b.entryDate - a.entryDate) 
+      trades: [...newTrades, ...state.trades].toSorted((a, b) => b.entryDate - a.entryDate) 
     }));
   },
 
@@ -461,7 +465,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     set((state) => {
       const retained = state.trades.filter((trade) => !isImportedHoldingTrade(trade));
       return {
-        trades: [...newTrades, ...retained].sort((a, b) => b.entryDate - a.entryDate),
+        trades: [...newTrades, ...retained].toSorted((a, b) => b.entryDate - a.entryDate),
       };
     });
   },
@@ -644,7 +648,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
 
     if (newItems.length === 0) return;
     set((state) => ({
-      watchlist: [...newItems, ...state.watchlist].sort((a, b) => b.addedAt - a.addedAt),
+      watchlist: [...newItems, ...state.watchlist].toSorted((a, b) => b.addedAt - a.addedAt),
     }));
   },
 
@@ -704,7 +708,7 @@ export const useTradeStore = create<TradeState>((set, get) => ({
     }
     await db.put('watchlistLists', list);
     set((state) => ({
-      watchlistLists: [...state.watchlistLists.filter((x) => x.id !== list.id), list].sort(
+      watchlistLists: [...state.watchlistLists.filter((x) => x.id !== list.id), list].toSorted(
         (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt,
       ),
     }));

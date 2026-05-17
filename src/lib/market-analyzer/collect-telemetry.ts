@@ -91,10 +91,13 @@ export async function collectMacroTelemetry(): Promise<RawMacroTelemetrySnapshot
     fetchAdHistory(),
   ]);
 
-  const vixHistory = vixData.points.map((p) => p.close).filter((c) => Number.isFinite(c));
+  const vixHistory: number[] = [];
+  for (const p of vixData.points) {
+    if (Number.isFinite(p.close)) vixHistory.push(p.close);
+  }
   requireMinLength('VIX', vixHistory, minVix);
 
-  const sortedBars = [...nifty500Technical.bars].sort((a, b) => a.t - b.t);
+  const sortedBars = nifty500Technical.bars.toSorted((a, b) => a.t - b.t);
   const closes = sortedBars.map((b) => b.c);
   requireMinLength('Nifty 500 closes', closes, minPx);
 
@@ -135,7 +138,10 @@ export async function fetchSharedMarketSlices(): Promise<SharedMarketSlices> {
     fetchVixHistory({ sessions: Math.max(minVix + 5, 30) }),
     fetchAdHistory(),
   ]);
-  const vixHistory = vixData.points.map((p) => p.close).filter((c) => Number.isFinite(c));
+  const vixHistory: number[] = [];
+  for (const p of vixData.points) {
+    if (Number.isFinite(p.close)) vixHistory.push(p.close);
+  }
   requireMinLength('VIX', vixHistory, minVix);
   return { vixHistory, adHistory };
 }
@@ -147,7 +153,7 @@ function buildTelemetryFromTechnical(
   const minPx = ANALYZER_LOOKBACK.indexCloseSessions;
   const minAd = ANALYZER_LOOKBACK.adSessions;
 
-  const sortedBars = [...technical.bars].sort((a, b) => a.t - b.t);
+  const sortedBars = technical.bars.toSorted((a, b) => a.t - b.t);
   const closes = sortedBars.map((b) => b.c);
   requireMinLength('Index closes', closes, minPx);
 

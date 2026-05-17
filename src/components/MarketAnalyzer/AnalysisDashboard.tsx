@@ -79,8 +79,8 @@ export function AnalysisDashboard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-gray-400">
-            <span className="font-bold uppercase tracking-wide whitespace-nowrap">Index</span>
+          <div className="flex items-center gap-2 text-xs text-gray-400" role="group" aria-labelledby="market-analyzer-index-label">
+            <span id="market-analyzer-index-label" className="font-bold uppercase tracking-wide whitespace-nowrap">Index</span>
             <IndexScoreSelect
               selectedIndex={selectedIndex}
               onSelect={onIndexChange}
@@ -91,7 +91,7 @@ export function AnalysisDashboard({
               scoredCount={scoredCount}
               totalIndexes={totalIndexes}
             />
-          </label>
+          </div>
 
           <button
             type="button"

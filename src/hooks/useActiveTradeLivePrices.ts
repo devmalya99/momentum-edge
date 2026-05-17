@@ -17,7 +17,7 @@ export function useActiveTradeLivePrices(trades: Trade[]) {
     for (const t of trades) {
       if (t.status === 'Active') s.add(t.symbol.trim().toUpperCase());
     }
-    return [...s].sort();
+    return [...s].toSorted();
   }, [trades]);
 
   const quoteQueries = useQueries({

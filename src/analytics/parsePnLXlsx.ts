@@ -43,7 +43,13 @@ function findHeaderRow(rows: unknown[][]): { rowIndex: number; colMap: Record<st
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] as unknown[];
     const lower = r.map((c) => norm(c));
-    const symIdx = lower.findIndex((c) => c === 'symbol');
+    let symIdx = -1;
+    for (let k = 0; k < lower.length; k++) {
+      if (lower[k] === 'symbol') {
+        symIdx = k;
+        break;
+      }
+    }
     if (symIdx < 0) continue;
     const colMap: Record<string, number> = { symbol: symIdx };
     for (let j = 0; j < r.length; j++) {
@@ -110,6 +116,48 @@ function parseSummaryFromRows(rows: unknown[][], errors: string[]): PnLSummary {
   return summary;
 }
 
+type ChargeBucket = keyof Omit<PnLChargesDetail, 'totalCharges'>;
+
+function classifyChargeLabel(label: string): ChargeBucket | null {
+  if (label.includes('brokerage')) return 'brokerage';
+  if (label.includes('stt') || label.includes('securities transaction tax')) return 'stt';
+  if (
+    label.includes('gst') ||
+    label.includes('integrated gst') ||
+    label.includes('central gst') ||
+    label.includes('state gst')
+  ) {
+    return 'gst';
+  }
+  if (label.includes('stamp duty')) return 'stampDuty';
+  if (
+    label.includes('dp charges') ||
+    label.includes('cdsl') ||
+    label.includes('nsdl') ||
+    (label.includes('depository') && label.includes('charges'))
+  ) {
+    return 'dpCharges';
+  }
+  if (
+    label.includes('stcg') ||
+    (label.includes('short') && label.includes('capital') && label.includes('gain')) ||
+    (label.includes('capital gains') && (label.includes('tax') || label.includes('stcg'))) ||
+    label.includes('income tax on capital')
+  ) {
+    return 'stcgTax';
+  }
+  if (
+    label.includes('exchange transaction') ||
+    label.includes('clearing') ||
+    label.includes('sebi') ||
+    label.includes('ipft') ||
+    label.includes('turnover fees')
+  ) {
+    return 'otherCharges';
+  }
+  return null;
+}
+
 function parseCharges(rows: unknown[][], errors: string[]): PnLChargesDetail {
   const detail: PnLChargesDetail = {
     brokerage: 0,
@@ -130,39 +178,8 @@ function parseCharges(rows: unknown[][], errors: string[]): PnLChargesDetail {
     const amt = toNum(row[1]);
     if (!label) continue;
 
-    if (label.includes('brokerage')) detail.brokerage += amt;
-    else if (label.includes('stt') || label.includes('securities transaction tax')) detail.stt += amt;
-    else if (
-      label.includes('gst') ||
-      label.includes('integrated gst') ||
-      label.includes('central gst') ||
-      label.includes('state gst')
-    )
-      detail.gst += amt;
-    else if (label.includes('stamp duty')) detail.stampDuty += amt;
-    else if (
-      label.includes('dp charges') ||
-      label.includes('cdsl') ||
-      label.includes('nsdl') ||
-      (label.includes('depository') && label.includes('charges'))
-    )
-      detail.dpCharges += amt;
-    else if (
-      label.includes('stcg') ||
-      (label.includes('short') && label.includes('capital') && label.includes('gain')) ||
-      (label.includes('capital gains') && (label.includes('tax') || label.includes('stcg'))) ||
-      label.includes('income tax on capital')
-    )
-      detail.stcgTax += amt;
-    else if (
-      label.includes('exchange transaction') ||
-      label.includes('clearing') ||
-      label.includes('sebi') ||
-      label.includes('ipft') ||
-      label.includes('turnover fees')
-    ) {
-      detail.otherCharges += amt;
-    }
+    const bucket = classifyChargeLabel(label);
+    if (bucket) detail[bucket] += amt;
   }
 
   detail.totalCharges =

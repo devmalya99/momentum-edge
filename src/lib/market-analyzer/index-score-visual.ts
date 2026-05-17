@@ -83,7 +83,7 @@ export function groupIndexesByPositionSize(
   }
 
   const sortEntries = (list: MarketAnalyzerIndexEntry[]) =>
-    [...list].sort((a, b) => a.nseSymbol.localeCompare(b.nseSymbol));
+    list.toSorted((a, b) => a.nseSymbol.localeCompare(b.nseSymbol));
 
   const groups: IndexScoreGroup[] = [];
 

@@ -284,8 +284,9 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Exit Execution</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Exit Price</label>
+                        <label htmlFor="trade-exit-price" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Exit Price</label>
                         <input
+                          id="trade-exit-price"
                           type="number"
                           value={exitPrice || ''}
                           onChange={(e) => setExitPrice(parseFloat(e.target.value))}
@@ -293,8 +294,9 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Reason</label>
+                        <label htmlFor="trade-exit-reason" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Reason</label>
                         <select
+                          id="trade-exit-reason"
                           value={exitReason}
                           onChange={(e) => setExitReason(e.target.value as any)}
                           className="w-full bg-[#0a0a0b] border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
@@ -366,7 +368,7 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Mistakes / Behavioral Notes</label>
+                    <span className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Mistakes / Behavioral Notes</span>
                     <div className="flex flex-wrap gap-2">
                       {MISTAKE_OPTIONS.map((m) => (
                         <button
@@ -383,8 +385,9 @@ export default function TradeDetail({ trade, onClose }: TradeDetailProps) {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Detailed Notes</label>
+                    <label htmlFor="trade-detail-notes" className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Detailed Notes</label>
                     <textarea
+                      id="trade-detail-notes"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       className="w-full bg-[#0a0a0b] border border-white/10 rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all min-h-[150px] text-sm leading-relaxed"

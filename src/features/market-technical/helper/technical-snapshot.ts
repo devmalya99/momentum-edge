@@ -191,7 +191,7 @@ export function buildMarketTechnicalSnapshot(bars: NseDailyBar[]): {
   wire: MarketTechnicalBar[];
   snapshot: MarketTechnicalSnapshot;
 } {
-  const sorted = [...bars].sort((a, b) => a.timestamp - b.timestamp);
+  const sorted = bars.toSorted((a, b) => a.timestamp - b.timestamp);
   const wire = barsToWire(sorted);
   const closes = sorted.map((b) => b.close);
   const highs = sorted.map((b) => b.high);

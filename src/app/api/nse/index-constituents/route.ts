@@ -58,13 +58,12 @@ export async function GET(request: Request) {
     const name = String(payload?.name ?? index).trim();
     const rows = Array.isArray(payload?.data) ? payload.data : [];
 
-    const equities = rows
-      .filter((r) => isEquityConstituent(r, name))
-      .map((r) => {
-        const symbol = String(r.symbol ?? r.meta?.symbol ?? '').trim().toUpperCase();
-        const companyName = String(r.meta?.companyName ?? r.symbol ?? symbol).trim() || symbol;
-        return { symbol, companyName };
-      });
+    const equities = rows.flatMap((r) => {
+      if (!isEquityConstituent(r, name)) return [];
+      const symbol = String(r.symbol ?? r.meta?.symbol ?? '').trim().toUpperCase();
+      const companyName = String(r.meta?.companyName ?? r.symbol ?? symbol).trim() || symbol;
+      return [{ symbol, companyName }];
+    });
 
     return NextResponse.json({ indexName: name, constituents: equities });
   } catch (error) {

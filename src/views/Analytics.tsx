@@ -37,9 +37,12 @@ function isEmptyStringCell(v: unknown): boolean {
 }
 
 function compactRows(rows: unknown[][]): unknown[][] {
-  return rows
-    .map((row) => (Array.isArray(row) ? row : []).filter((cell) => !isEmptyStringCell(cell)))
-    .filter((row) => row.length > 0);
+  const out: unknown[][] = [];
+  for (const row of rows) {
+    const cells = Array.isArray(row) ? row.filter((cell) => !isEmptyStringCell(cell)) : [];
+    if (cells.length > 0) out.push(cells);
+  }
+  return out;
 }
 
 function signedClass(n: number): string {
@@ -248,12 +251,13 @@ export default function Analytics() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-5 rounded-2xl bg-[#080b12] border border-cyan-500/15 space-y-3">
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                <label htmlFor="analytics-bank-invest" className="block text-[10px] font-bold uppercase tracking-widest text-gray-500">
                   real_invest_from_bank (₹)
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500">₹</span>
                   <input
+                    id="analytics-bank-invest"
                     type="number"
                     min={0}
                     step="0.01"

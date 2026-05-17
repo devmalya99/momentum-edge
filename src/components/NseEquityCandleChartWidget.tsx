@@ -3,31 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { init, dispose, type Chart } from 'klinecharts';
-import { fetchNseEquityHistorical } from '@/lib/nse-equity-historical-client';
-import { fetchNseIndexHistorical } from '@/lib/nse-index-historical-client';
 import {
   aggregateNseDailyToKlines,
   CUSTOM_CANDLE_PERIOD_LABEL,
   flattenNseEquityHistoricalChunks,
   type CustomCandlePeriod,
 } from '@/lib/nse-equity-historical-kline';
+import { defaultNseChartHistoryRange, nseChartHistoricalQueryOptions } from '@/lib/nse-chart-query';
 import { Loader2 } from 'lucide-react';
 
 const PERIODS: CustomCandlePeriod[] = ['1d', '2d', '3d', '5d', '1w', '3w', '1m'];
-
-function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function defaultHistoryRange(): { from: string; to: string } {
-  const end = new Date();
-  const start = new Date(end.getTime());
-  start.setFullYear(start.getFullYear() - 3);
-  return { from: ymd(start), to: ymd(end) };
-}
 
 type Props = {
   /** NSE equity symbol or index name (e.g. `NIFTY 50`) */
@@ -49,7 +34,7 @@ export default function NseEquityCandleChartWidget({
 }: Props) {
   const nse = symbol.trim().toUpperCase();
   const range = useMemo(() => {
-    const d = defaultHistoryRange();
+    const d = defaultNseChartHistoryRange();
     return { from: historyFrom ?? d.from, to: historyTo ?? d.to };
   }, [historyFrom, historyTo]);
 
@@ -57,22 +42,7 @@ export default function NseEquityCandleChartWidget({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
 
-  const histQuery = useQuery({
-    queryKey:
-      seriesKind === 'index'
-        ? (['nse-index-historical', nse] as const)
-        : (['nse-equity-historical', nse, range.from, range.to] as const),
-    queryFn: async () => {
-      if (seriesKind === 'index') {
-        const { bars } = await fetchNseIndexHistorical(nse, { flag: '5Y' });
-        return { seriesKind: 'index' as const, bars };
-      }
-      const pack = await fetchNseEquityHistorical(nse, { from: range.from, to: range.to });
-      return { seriesKind: 'equity' as const, pack };
-    },
-    enabled: nse.length > 0,
-    staleTime: 5 * 60_000,
-  });
+  const histQuery = useQuery(nseChartHistoricalQueryOptions(nse, seriesKind, range));
 
   const klines = useMemo(() => {
     const d = histQuery.data;

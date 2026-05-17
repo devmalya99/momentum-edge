@@ -511,10 +511,11 @@ export default function Networth() {
         <section className="xl:col-span-4 rounded-3xl border border-rose-500/20 bg-[#130f14]/90 p-5 space-y-4 shadow-xl shadow-rose-950/20">
           <h2 className="text-sm font-black uppercase tracking-widest text-rose-300">Margin & Liabilities</h2>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Broker Margin Used</label>
+            <label htmlFor="networth-broker-margin" className="text-[10px] font-black uppercase tracking-widest text-gray-500">Broker Margin Used</label>
             <div className="mt-2 flex items-center gap-2">
               <span className="text-2xl font-bold text-gray-400">₹</span>
               <input
+                id="networth-broker-margin"
                 type="number"
                 min={0}
                 value={brokerMarginUsed}
@@ -545,13 +546,14 @@ export default function Networth() {
           <h2 className="text-sm font-black uppercase tracking-widest text-lime-300">Core Base Management</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-due-payables" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               due_payables
             </label>
             <p className="text-[10px] text-gray-600">Amount you owe others (liability).</p>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-due-payables"
                 type="number"
                 min={0}
                 step="0.01"
@@ -579,13 +581,14 @@ export default function Networth() {
           </div>
 
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-receivables" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               Receivables
             </label>
             <p className="text-[10px] text-gray-600">Money others owe you (asset).</p>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-receivables"
                 type="number"
                 min={0}
                 step="0.01"
@@ -613,12 +616,13 @@ export default function Networth() {
           </div>
 
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-ppf" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               ppf
             </label>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-ppf"
                 type="number"
                 min={0}
                 step="0.01"
@@ -646,12 +650,13 @@ export default function Networth() {
           </div>
 
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-liquid-fund" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               liquid_fund
             </label>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-liquid-fund"
                 type="number"
                 min={0}
                 step="0.01"
@@ -679,13 +684,14 @@ export default function Networth() {
           </div>
 
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-zerodha-cash" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               zerodha_cash_holding
             </label>
             <p className="text-[10px] text-gray-600">Remaining cash available in Zerodha account.</p>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-zerodha-cash"
                 type="number"
                 min={0}
                 step="0.01"
@@ -712,13 +718,14 @@ export default function Networth() {
             </button>
           </div>
           <div className="p-4 rounded-2xl bg-[#0a0a0b] border border-white/5 space-y-3">
-            <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <label htmlFor="networth-bank-balance" className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
               total_bank_balance
             </label>
             <p className="text-[10px] text-gray-600">Current total bank cash balance from master.</p>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">₹</span>
               <input
+                id="networth-bank-balance"
                 type="number"
                 min={0}
                 step="0.01"

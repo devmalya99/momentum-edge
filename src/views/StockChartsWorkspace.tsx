@@ -28,7 +28,7 @@ function buildHoldings(activeTrades: Trade[]): HoldingGroup[] {
         trades: [t],
       });
   }
-  return [...map.values()].sort((a, b) => a.displaySymbol.localeCompare(b.displaySymbol));
+  return [...map.values()].toSorted((a, b) => a.displaySymbol.localeCompare(b.displaySymbol));
 }
 
 function unrealizedForGroup(group: HoldingGroup, liveBySymbol: Record<string, number>): number {

@@ -63,7 +63,7 @@ export function flattenNseEquityHistoricalChunks(chunks: EquityHistoricalData[])
       byTs.set(bar.timestamp, bar);
     }
   }
-  return [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp);
+  return [...byTs.values()].toSorted((a, b) => a.timestamp - b.timestamp);
 }
 
 function mergeBucket(rows: NseDailyBar[], endTimestamp: number): KLineData {
@@ -106,7 +106,7 @@ function bucketByCalendarMonth(sorted: NseDailyBar[]): KLineData[] {
     if (g) g.push(row);
     else groups.set(key, [row]);
   }
-  const keys = [...groups.keys()].sort();
+  const keys = [...groups.keys()].toSorted();
   return keys.map((k) => {
     const slice = groups.get(k)!;
     return mergeBucket(slice, slice[slice.length - 1].timestamp);

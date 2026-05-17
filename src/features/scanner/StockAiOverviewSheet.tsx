@@ -178,7 +178,7 @@ export default function StockAiOverviewSheet({
               Generating quantamental overview...
             </div>
           ) : q.isError ? (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-gray-300">
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-100">
               <AlertTriangle
                 className="mt-0.5 h-4 w-4 shrink-0 text-amber-400"
                 aria-hidden

@@ -52,7 +52,10 @@ function indexNamesFromNseStnPayload(raw: unknown): string[] {
 
 function normalizeIndexNameList(raw: unknown): string[] {
   if (Array.isArray(raw)) {
-    return raw.map(indexLabelFromEntry).filter(Boolean);
+    return raw.flatMap((entry) => {
+      const label = indexLabelFromEntry(entry);
+      return label ? [label] : [];
+    });
   }
   if (raw && typeof raw === 'object') {
     const o = raw as Record<string, unknown>;

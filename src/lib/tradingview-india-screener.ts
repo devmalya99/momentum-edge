@@ -3,6 +3,7 @@ import tradingViewIndiaScreener52hPayload from '@/lib/tradingview-india-screener
 import tradingViewIndiaScreenerNewMonthlyHighPayload from '@/lib/tradingview-india-screener-new-monthly-high-payload.json';
 import tradingViewIndiaScreenerNewTrendPayload from '@/lib/tradingview-india-screener-new-trend-payload.json';
 import tradingViewIndiaScreenerAtAllTimeHighPayload from '@/lib/tradingview-india-screener-at-all-time-high-payload.json';
+import tradingViewIndiaScreenerStrongWClosePayload from '@/lib/tradingview-india-screener-strong-w-close-payload.json';
 
 const TRADINGVIEW_INDIA_SCAN_URL =
   'https://scanner.tradingview.com/india/scan?label-product=screener-stock';
@@ -12,6 +13,7 @@ export type TradingViewIndiaScreenerScreen =
   | 'new-monthly-high'
   | 'new-trend'
   | 'at-all-time-high'
+  | 'strong-w-close'
   | 'monthly';
 
 export type TradingViewIndiaScreenerRow = {
@@ -45,6 +47,7 @@ function toFiniteNumber(v: unknown): number | null {
 
 function getScreenPayload(screen: TradingViewIndiaScreenerScreen) {
   if (screen === 'at-all-time-high') return tradingViewIndiaScreenerAtAllTimeHighPayload;
+  if (screen === 'strong-w-close') return tradingViewIndiaScreenerStrongWClosePayload;
   if (screen === 'new-trend') return tradingViewIndiaScreenerNewTrendPayload;
   if (screen === 'new-monthly-high') return tradingViewIndiaScreenerNewMonthlyHighPayload;
   if (screen === '52h') return tradingViewIndiaScreener52hPayload;
@@ -58,7 +61,10 @@ export function tradingViewScreenerRowToListItem(
 ): TradingViewScreenerListItem {
   const payload = getScreenPayload(screen);
   const closeIndex = payload.columns.indexOf('close');
-  const changeIndex = payload.columns.indexOf('change');
+  const changeIndex =
+    payload.columns.indexOf('change') >= 0
+      ? payload.columns.indexOf('change')
+      : payload.columns.indexOf('change|1W');
   const tvSymbol = row.s.trim();
   const colon = tvSymbol.indexOf(':');
   const exchange = colon >= 0 ? tvSymbol.slice(0, colon).toUpperCase() : '';

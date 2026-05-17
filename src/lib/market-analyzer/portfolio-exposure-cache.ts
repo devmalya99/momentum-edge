@@ -6,6 +6,13 @@ import type { EquityExposure } from '@/types/marketAnalyzer';
 
 const STORAGE_KEY = 'momentum-edge:portfolio-exposure';
 
+const IST_DATE_KEY_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 export type PortfolioExposureCacheEntry = {
   asOf: string;
   equityExposure: EquityExposure;
@@ -14,12 +21,7 @@ export type PortfolioExposureCacheEntry = {
 };
 
 export function istDateKey(date: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  return IST_DATE_KEY_FORMAT.format(date);
 }
 
 export function readPortfolioExposureCache(

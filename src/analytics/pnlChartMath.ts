@@ -2,7 +2,7 @@ import type { PnlChartTrade } from './types';
 
 export function medianPnL(values: number[]): number {
   if (values.length === 0) return 0;
-  const s = [...values].sort((a, b) => a - b);
+  const s = values.toSorted((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 === 1 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
@@ -34,7 +34,7 @@ export type DistributionBarPoint = {
 /** Ascending PnL: largest losses left, largest profits right. */
 export function buildDistributionBars(trades: PnlChartTrade[]): DistributionBarPoint[] {
   const rows = filterChartTrades(trades);
-  const sorted = [...rows].sort((a, b) => a.pnl - b.pnl);
+  const sorted = rows.toSorted((a, b) => a.pnl - b.pnl);
   return sorted.map((t, i) => ({
     idx: i + 1,
     pnl: t.pnl,
@@ -61,7 +61,7 @@ export function buildDistributionBarsByPct(trades: PnlChartTrade[]): Distributio
   const rows = filterChartTrades(trades);
   const pctOf = (t: PnlChartTrade): number =>
     typeof t.pnlPct === 'number' && Number.isFinite(t.pnlPct) ? t.pnlPct : t.pnl;
-  const sorted = [...rows].sort((a, b) => pctOf(a) - pctOf(b));
+  const sorted = rows.toSorted((a, b) => pctOf(a) - pctOf(b));
   return sorted.map((t, i) => {
     const rawPct = t.pnlPct;
     const pnlPct = typeof rawPct === 'number' && Number.isFinite(rawPct) ? rawPct : 0;

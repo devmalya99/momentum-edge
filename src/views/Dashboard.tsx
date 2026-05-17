@@ -33,13 +33,25 @@ export default function Dashboard() {
     }
   };
 
+  const onSortHeaderKeyDown = (key: SortKey) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleSort(key);
+    }
+  };
+
   const { activeSymbols, livePriceBySymbol, quotesFetching, quoteErrors } =
     useActiveTradeLivePrices(trades);
 
   const tradeTypeOptions = useMemo(() => {
-    const fromSettings = (settings.tradeTypes ?? []).map((t) => t.name).filter(Boolean);
-    const fromTrades = trades.map((t) => t.type).filter(Boolean);
-    return ['All', ...Array.from(new Set([...fromSettings, ...fromTrades]))];
+    const names = new Set<string>();
+    for (const t of settings.tradeTypes ?? []) {
+      if (t.name) names.add(t.name);
+    }
+    for (const t of trades) {
+      if (t.type) names.add(t.type);
+    }
+    return ['All', ...names];
   }, [settings.tradeTypes, trades]);
 
   const typeFilteredTrades = useMemo(() => {
@@ -521,27 +533,39 @@ export default function Dashboard() {
             </h2>
             <div className="hidden lg:grid grid-cols-7 gap-4 px-6 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mx-2">
               <div
+                role="button"
+                tabIndex={0}
                 className="col-span-2 cursor-pointer hover:text-white transition-colors"
                 onClick={() => handleSort('date')}
+                onKeyDown={onSortHeaderKeyDown('date')}
               >
                 Symbol & Date {sortKey === 'date' && (sortDir === 'asc' ? '↑' : '↓')}
               </div>
               <div
+                role="button"
+                tabIndex={0}
                 className="cursor-pointer hover:text-white transition-colors"
                 onClick={() => handleSort('invested')}
+                onKeyDown={onSortHeaderKeyDown('invested')}
               >
                 Invested {sortKey === 'invested' && (sortDir === 'asc' ? '↑' : '↓')}
               </div>
               <div>Current Price</div>
               <div
+                role="button"
+                tabIndex={0}
                 className="cursor-pointer hover:text-white transition-colors"
                 onClick={() => handleSort('pnlValue')}
+                onKeyDown={onSortHeaderKeyDown('pnlValue')}
               >
                 P&L Value {sortKey === 'pnlValue' && (sortDir === 'asc' ? '↑' : '↓')}
               </div>
               <div
+                role="button"
+                tabIndex={0}
                 className="cursor-pointer hover:text-white transition-colors"
                 onClick={() => handleSort('pnlPercent')}
+                onKeyDown={onSortHeaderKeyDown('pnlPercent')}
               >
                 P&L % {sortKey === 'pnlPercent' && (sortDir === 'asc' ? '↑' : '↓')}
               </div>

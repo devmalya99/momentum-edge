@@ -11,13 +11,15 @@ export type ParsedLiveAd = {
 };
 
 
+const IST_DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 function formatDateIst(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  return IST_DATE_FORMAT.format(d);
 }
 
 export function parseNseLiveAdvanceDecline(data: unknown): ParsedLiveAd | null {
