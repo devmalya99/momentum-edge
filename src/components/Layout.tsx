@@ -18,6 +18,8 @@ import {
   Calculator,
   UserCircle2,
   LogOut,
+  Sparkles,
+  BellRing,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -40,7 +42,9 @@ const NAV_ITEMS = [
   { id: 'analytics', label: 'Analytics', icon: BarChart2, href: '/analytics' },
   { id: 'market-view', label: 'Market View', icon: Globe, href: '/market-view' },
   { id: '52h-scanner', label: 'Scanner', icon: ScanSearch, href: '/52w-scanner' },
+  { id: 'ai-news-search', label: 'AI News Search', icon: Sparkles, href: '/ai-news-search' },
   { id: 'watchlist', label: 'Watchlist', icon: Bookmark, href: '/watchlist' },
+  { id: 'zeroth', label: 'Zeroth', icon: BellRing, href: '/zeroth' },
   { id: 'mtf-checker', label: 'Position Size Analysis', icon: Calculator, href: '/mtf-checker' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/settings' },
   { id: 'profile', label: 'My Profile', icon: UserCircle2, href: '/profile' },
@@ -76,7 +80,7 @@ export default function Layout({ children }: LayoutProps) {
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="text-lg font-bold tracking-tight bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent"
+                className="text-lg font-bold tracking-tight bg-linear-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent"
               >
                 MOMENTUM EDGE
               </motion.span>
@@ -133,7 +137,7 @@ export default function Layout({ children }: LayoutProps) {
                 !sidebarExpanded && 'justify-center',
               )}
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xs font-bold">
+              <div className="w-8 h-8 rounded-full bg-linear-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-xs font-bold">
                 {user?.name?.slice(0, 2).toUpperCase() || 'ME'}
               </div>
               {sidebarExpanded && (

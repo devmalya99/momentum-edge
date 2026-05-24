@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { MembershipCard } from '@/components/membership/MembershipCard';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -21,8 +23,14 @@ type ProfileResponse = {
   error?: string;
 };
 
+type KiteConnectionResponse = {
+  connected?: boolean;
+  error?: string;
+};
+
 export default function ProfilePage() {
   const setUser = useAuthStore((s) => s.setUser);
+  const searchParams = useSearchParams();
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -33,6 +41,7 @@ export default function ProfilePage() {
   });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const kiteStatus = searchParams.get('kite');
 
   const profileQuery = useQuery({
     queryKey: ['profile'],
@@ -43,6 +52,17 @@ export default function ProfilePage() {
         throw new Error(data.error ?? 'Failed to load profile');
       }
       return { user: data.user, membershipOffer: data.membershipOffer };
+    },
+  });
+  const kiteConnectionQuery = useQuery({
+    queryKey: ['kite-connection-status', kiteStatus],
+    queryFn: async () => {
+      const response = await fetch('/api/zerodha/connect/status', { cache: 'no-store' });
+      const data = (await response.json()) as KiteConnectionResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to load Kite status');
+      }
+      return Boolean(data.connected);
     },
   });
 
@@ -100,6 +120,37 @@ export default function ProfilePage() {
         membership={profileQuery.data?.user.membership ?? 'basic'}
         amountLabel={profileQuery.data?.membershipOffer?.amountLabel}
       />
+
+      <section className="space-y-3 rounded-3xl border border-white/10 bg-white/5 p-6">
+        <h2 className="text-base font-semibold text-white">Broker Integration</h2>
+        <p className="text-sm text-gray-400">
+          Connect your Zerodha account to securely link Kite access for server-side requests.
+        </p>
+        <p className="text-sm text-gray-300">
+          Status:{' '}
+          <span className={kiteConnectionQuery.data ? 'text-emerald-300' : 'text-amber-300'}>
+            {kiteConnectionQuery.isLoading
+              ? 'Checking...'
+              : kiteConnectionQuery.data
+                ? 'Connected'
+                : 'Not connected'}
+          </span>
+        </p>
+        <Link
+          href="/api/zerodha/connect/login"
+          className="inline-flex rounded-xl bg-linear-to-r from-indigo-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110"
+        >
+          {kiteConnectionQuery.data ? 'Reconnect Kite' : 'Login with Kite'}
+        </Link>
+        {kiteStatus === 'connected' ? (
+          <p className="text-sm text-emerald-300">Kite connected successfully.</p>
+        ) : null}
+        {kiteStatus === 'error' ? (
+          <p className="text-sm text-rose-300">
+            Kite login failed. Please try again and verify your app callback URL in Zerodha.
+          </p>
+        ) : null}
+      </section>
 
       <form
         className="space-y-5 rounded-3xl border border-white/10 bg-white/5 p-6"
@@ -185,7 +236,7 @@ export default function ProfilePage() {
 
         <button
           type="submit"
-          className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
+          className="rounded-xl bg-linear-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
           disabled={updateMutation.isPending}
         >
           {updateMutation.isPending ? 'Saving...' : 'Save Profile'}

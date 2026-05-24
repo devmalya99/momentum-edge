@@ -9,10 +9,15 @@ import {
   useMarketTechnicalQuery,
   type MarketTechnicalQueryInput,
 } from '@/features/market-technical/query/use-market-technical-query';
-import type { NseDailyBar, CustomCandlePeriod } from '@/lib/nse-equity-historical-kline';
+import type { NseDailyBar, CustomCandlePeriod, DailyCandlePeriod } from '@/lib/nse-equity-historical-kline';
 import { aggregateNseDailyToKlines, CUSTOM_CANDLE_PERIOD_LABEL } from '@/lib/nse-equity-historical-kline';
 
 const TIMEFRAMES: CustomCandlePeriod[] = ['1d', '2d', '3d', '5d', '1w', '3w', '1m'];
+
+function toDailyCandlePeriod(period: CustomCandlePeriod): DailyCandlePeriod {
+  // This board is backed by daily NSE bars; if an intraday value slips in, fall back safely.
+  return period === '1h' ? '1d' : period;
+}
 
 function fmtPrice(n: number | null, digits = 2): string {
   if (n == null || !Number.isFinite(n)) return '—';
@@ -108,10 +113,10 @@ export function MarketTechnicalKlineBoard({
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [q.data]);
 
-  const klines: KLineData[] = useMemo(
-    () => aggregateNseDailyToKlines(dailyBars, candlePeriod),
-    [dailyBars, candlePeriod],
-  );
+  const klines: KLineData[] = useMemo(() => {
+    const safePeriod = toDailyCandlePeriod(candlePeriod);
+    return aggregateNseDailyToKlines(dailyBars, safePeriod);
+  }, [dailyBars, candlePeriod]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);

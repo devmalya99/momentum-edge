@@ -24,14 +24,65 @@
   ],
   "filter": [
     {
-      "left": "AvgValue.Traded_10d",
+      "left": "change",
       "operation": "greater",
-      "right": 50000000
+      "right": 0
     },
     {
-      "left": "High.All",
-      "operation": "eless",
-      "right": "high"
+      "left": "change",
+      "operation": "in_range",
+      "right": [
+        1,
+        8.3
+      ]
+    },
+    {
+      "left": "RSI",
+      "operation": "greater",
+      "right": 58
+    },
+    {
+      "left": "Perf.W",
+      "operation": "in_range",
+      "right": [
+        0,
+        17
+      ]
+    },
+    {
+      "left": "market_cap_basic",
+      "operation": "egreater",
+      "right": 1000000000
+    },
+    {
+      "left": "RSI|1W",
+      "operation": "greater",
+      "right": 55
+    },
+    {
+      "left": "Perf.W",
+      "operation": "greater",
+      "right": 2
+    },
+    {
+      "left": "relative_volume_10d_calc",
+      "operation": "greater",
+      "right": 1.2
+    },
+    {
+      "left": "EMA20",
+      "operation": "egreater",
+      "right": "EMA100"
+    },
+    {
+      "left": "AvgValue.Traded_10d",
+      "operation": "greater",
+      "right": 20000000
+    },
+    {
+      "left": "EMA20",
+      "operation": "egreater",
+      "right": "EMA50"
     },
     {
       "left": "is_primary",
@@ -48,10 +99,9 @@
     100
   ],
   "sort": {
-    "sortBy": "Perf.3M",
-    "sortOrder": "desc"
+    "sortBy": "Perf.W",
+    "sortOrder": "asc"
   },
-  "symbols": {},
   "markets": [
     "india"
   ],
@@ -139,8 +189,7 @@
                       "operation": "has_none_of",
                       "right": [
                         "etf",
-                        "mutual",
-                        "closedend"
+                        "mutual"
                       ]
                     }
                   }

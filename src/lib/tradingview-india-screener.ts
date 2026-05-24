@@ -1,20 +1,9 @@
-import tradingViewIndiaScreenerPayload from '@/lib/tradingview-india-screener-payload.json';
-import tradingViewIndiaScreener52hPayload from '@/lib/tradingview-india-screener-52h-payload.json';
-import tradingViewIndiaScreenerNewMonthlyHighPayload from '@/lib/tradingview-india-screener-new-monthly-high-payload.json';
-import tradingViewIndiaScreenerNewTrendPayload from '@/lib/tradingview-india-screener-new-trend-payload.json';
-import tradingViewIndiaScreenerAtAllTimeHighPayload from '@/lib/tradingview-india-screener-at-all-time-high-payload.json';
-import tradingViewIndiaScreenerStrongWClosePayload from '@/lib/tradingview-india-screener-strong-w-close-payload.json';
+import tradingViewIndiaScreenerTodaysSpecialPayload from '@/lib/tradingview-india-screener-todays-special-payload.json';
 
 const TRADINGVIEW_INDIA_SCAN_URL =
   'https://scanner.tradingview.com/india/scan?label-product=screener-stock';
 
-export type TradingViewIndiaScreenerScreen =
-  | '52h'
-  | 'new-monthly-high'
-  | 'new-trend'
-  | 'at-all-time-high'
-  | 'strong-w-close'
-  | 'monthly';
+export type TradingViewIndiaScreenerScreen = 'todays-special';
 
 export type TradingViewIndiaScreenerRow = {
   s: string;
@@ -45,21 +34,11 @@ function toFiniteNumber(v: unknown): number | null {
   return null;
 }
 
-function getScreenPayload(screen: TradingViewIndiaScreenerScreen) {
-  if (screen === 'at-all-time-high') return tradingViewIndiaScreenerAtAllTimeHighPayload;
-  if (screen === 'strong-w-close') return tradingViewIndiaScreenerStrongWClosePayload;
-  if (screen === 'new-trend') return tradingViewIndiaScreenerNewTrendPayload;
-  if (screen === 'new-monthly-high') return tradingViewIndiaScreenerNewMonthlyHighPayload;
-  if (screen === '52h') return tradingViewIndiaScreener52hPayload;
-  return tradingViewIndiaScreenerPayload;
-}
-
-/** Maps one scanner row using column order from the active screen payload. */
+/** Maps one scanner row using column order from the Todays Special payload. */
 export function tradingViewScreenerRowToListItem(
   row: TradingViewIndiaScreenerRow,
-  screen: TradingViewIndiaScreenerScreen,
 ): TradingViewScreenerListItem {
-  const payload = getScreenPayload(screen);
+  const payload = tradingViewIndiaScreenerTodaysSpecialPayload;
   const closeIndex = payload.columns.indexOf('close');
   const changeIndex =
     payload.columns.indexOf('change') >= 0
@@ -85,15 +64,12 @@ export function tradingViewScreenerRowToListItem(
 }
 
 /**
- * Runs the India stock screener on TradingView’s public scanner API.
- * Logs a concise summary plus a truncated JSON preview (full payloads are large), unless `silent`.
+ * Runs the India stock screener on TradingView’s public scanner API (Todays Special screen).
  */
 export async function fetchTradingViewIndiaScreenerStockScan(options?: {
   silent?: boolean;
-  screen?: TradingViewIndiaScreenerScreen;
 }): Promise<TradingViewIndiaScreenerResponse> {
-  const screen: TradingViewIndiaScreenerScreen = options?.screen ?? 'monthly';
-  const body = getScreenPayload(screen);
+  const body = tradingViewIndiaScreenerTodaysSpecialPayload;
 
   const res = await fetch(TRADINGVIEW_INDIA_SCAN_URL, {
     method: 'POST',

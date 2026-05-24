@@ -1,9 +1,5 @@
 import { useMemo } from 'react';
-import { useQueries } from '@tanstack/react-query';
 import type { Trade } from '@/db';
-import { fetchNseEquityQuoteRow, lastPriceFromNseQuoteRow } from '@/lib/nse-quote-client';
-
-const FIVE_MIN_MS = 5 * 60 * 1000;
 
 export function markPriceForTrade(t: Trade, liveBySymbol: Record<string, number>): number {
   if (t.status === 'Closed') return t.exitPrice ?? t.entryPrice;
@@ -11,6 +7,7 @@ export function markPriceForTrade(t: Trade, liveBySymbol: Record<string, number>
   return liveBySymbol[sym] ?? t.currentPrice ?? t.entryPrice;
 }
 
+/** Active trade symbols for display; live NSE quotes are fetched only on explicit selection (watchlist/scanner). */
 export function useActiveTradeLivePrices(trades: Trade[]) {
   const activeSymbols = useMemo(() => {
     const s = new Set<string>();
@@ -20,39 +17,10 @@ export function useActiveTradeLivePrices(trades: Trade[]) {
     return [...s].toSorted();
   }, [trades]);
 
-  const quoteQueries = useQueries({
-    queries: activeSymbols.map((symbol) => ({
-      queryKey: ['nse-equity-quote', symbol] as const,
-      queryFn: () => fetchNseEquityQuoteRow(symbol),
-      enabled: activeSymbols.length > 0,
-      staleTime: 0,
-      gcTime: 30 * 60 * 1000,
-      refetchInterval: FIVE_MIN_MS,
-      refetchOnWindowFocus: true,
-    })),
-  });
-
-  const quoteDataSignature = quoteQueries
-    .map((q) => {
-      const row = q.data;
-      if (!row) return '';
-      const p = lastPriceFromNseQuoteRow(row);
-      return `${p ?? ''}:${row.metaData?.pChange ?? ''}`;
-    })
-    .join('|');
-
-  const livePriceBySymbol = useMemo(() => {
-    const m: Record<string, number> = {};
-    activeSymbols.forEach((sym, i) => {
-      const row = quoteQueries[i]?.data;
-      const p = lastPriceFromNseQuoteRow(row);
-      if (typeof p === 'number' && p > 0) m[sym] = p;
-    });
-    return m;
-  }, [activeSymbols, quoteDataSignature]);
-
-  const quotesFetching = activeSymbols.length > 0 && quoteQueries.some((q) => q.isFetching);
-  const quoteErrors = quoteQueries.filter((q) => q.isError).length;
-
-  return { activeSymbols, livePriceBySymbol, quotesFetching, quoteErrors };
+  return {
+    activeSymbols,
+    livePriceBySymbol: {} as Record<string, number>,
+    quotesFetching: false,
+    quoteErrors: 0,
+  };
 }

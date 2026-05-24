@@ -16,7 +16,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/analytics') ||
     pathname.startsWith('/market-view') ||
     pathname.startsWith('/52w-scanner') ||
+    pathname.startsWith('/ai-news-search') ||
     pathname.startsWith('/watchlist') ||
+    pathname.startsWith('/zeroth') ||
     pathname.startsWith('/mtf-checker') ||
     pathname.startsWith('/settings') ||
     pathname.startsWith('/stock-charts') ||

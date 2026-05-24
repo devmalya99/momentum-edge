@@ -209,7 +209,7 @@ export async function deleteUserWatchlistItem(userId: string, id: string): Promi
 
 // ---------------------------------------------------------------------------
 // TradingView India screener — symbol discovery for watchlist flows (bulk
-// ideas, imports, etc.). Payload lives in `tradingview-india-screener-payload.json`.
+// ideas, imports, etc.). Payload lives in `tradingview-india-screener-todays-special-payload.json`.
 // ---------------------------------------------------------------------------
 export {
   fetchTradingViewIndiaScreenerStockScan,

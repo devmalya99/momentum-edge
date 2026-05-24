@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BookmarkCheck, LineChart, Loader2, Plus, Search, Trash2, ListPlus, Pencil, Sparkles } from 'lucide-react';
+import { BookmarkCheck, LineChart, Loader2, Newspaper, Plus, Search, Trash2, ListPlus, Pencil, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
@@ -11,13 +11,12 @@ import TechnicalChartScoreControl, {
   stockTagBadgeClass,
 } from '@/components/TechnicalChartScoreControl';
 import {
-  quantamentalScoreTickerKey,
-  useAiStockOverviewScoresQuery,
-} from '@/features/ai/useAiStockOverviewScoresQuery';
+  useBusinessAnalysisSummariesQuery,
+} from '@/features/ai/useBusinessAnalysisSummariesQuery';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
+import StockNewsSheet from '@/features/news/StockNewsSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
-import { fetchNseEquityQuoteRow } from '@/lib/nse-quote-client';
 import { useTradeStore } from '@/store/useTradeStore';
 import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
 import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
@@ -27,8 +26,7 @@ import { useMembership } from '@/hooks/useMembership';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
 import { useMembershipUpgradeStore } from '@/store/useMembershipUpgradeStore';
-
-const FIVE_MIN_MS = 5 * 60 * 1000;
+import { normalizeBusinessTicker } from '@/lib/ai/business-analysis';
 
 type WatchlistSortMode = 'added' | 'pct_desc' | 'pct_asc';
 
@@ -105,6 +103,7 @@ export default function WatchlistWorkspace() {
   const [sortMode, setSortMode] = useState<WatchlistSortMode>('added');
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [newsSheetOpen, setNewsSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
 
   const {
@@ -178,22 +177,10 @@ export default function WatchlistWorkspace() {
     [selectedEquitySymbol],
   );
 
-  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(selectedEquityTickers);
+  const { summaryByTicker: businessSummaryByTicker } =
+    useBusinessAnalysisSummariesQuery(selectedEquityTickers);
 
-  const selectedQuoteQuery = useQuery({
-    queryKey: ['nse-equity-quote', selectedEquitySymbol] as const,
-    queryFn: () => fetchNseEquityQuoteRow(selectedEquitySymbol),
-    enabled: selectedEquitySymbol.length > 0,
-    staleTime: 0,
-    gcTime: 30 * 60 * 1000,
-    refetchInterval: FIVE_MIN_MS,
-    refetchOnWindowFocus: true,
-  });
-
-  const selectedPChange = useMemo(() => {
-    const pc = selectedQuoteQuery.data?.metaData?.pChange;
-    return typeof pc === 'number' && Number.isFinite(pc) ? pc : undefined;
-  }, [selectedQuoteQuery.data]);
+  const selectedPChange: number | undefined = undefined;
 
   const sortedWatchlist = useMemo(() => {
     const rows = [...tagFilteredItems];
@@ -409,7 +396,24 @@ export default function WatchlistWorkspace() {
             you can review each name and chart. Bookmarks from the Scanner go to your Main list.
           </p>
         </div>
-        <div className="flex shrink-0 items-start">
+        <div className="flex shrink-0 items-start gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!selectedAiStock) return;
+              setNewsSheetOpen(true);
+            }}
+            disabled={!selectedAiStock}
+            aria-label={
+              selectedAiStock
+                ? `News for ${selectedAiStock.ticker}`
+                : 'News (select an equity stock first)'
+            }
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-500/20 disabled:opacity-50"
+          >
+            <Newspaper className="h-3.5 w-3.5" aria-hidden />
+            News
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -419,18 +423,24 @@ export default function WatchlistWorkspace() {
             disabled={!selectedAiStock}
             aria-label={
               selectedAiStock
-                ? `AI overview for ${selectedAiStock.ticker}`
-                : 'AI overview (select an equity stock first)'
+                ? `Business Analysis for ${selectedAiStock.ticker}`
+                : 'Business Analysis (select an equity stock first)'
             }
-            title={!isPremium ? 'Premium membership required for AI' : undefined}
+            title={!isPremium ? 'Premium membership required for Business Analysis' : undefined}
             className="inline-flex items-center gap-2 rounded-xl border border-purple-400/30 bg-purple-500/10 px-3 py-2 text-xs font-semibold text-purple-100 hover:bg-purple-500/20 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            AI
+            Business Analysis
           </button>
         </div>
       </div>
 
+      <StockNewsSheet
+        open={newsSheetOpen}
+        onOpenChange={setNewsSheetOpen}
+        ticker={selectedAiStock?.ticker ?? ''}
+        companyName={selectedAiStock?.companyName ?? ''}
+      />
       <StockAiOverviewSheet
         open={aiSheetOpen}
         onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}
@@ -656,30 +666,16 @@ export default function WatchlistWorkspace() {
                 {filteredSortedWatchlist.map((item) => {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
-                  const quantamentalTickerKey = quantamentalScoreTickerKey(item.symbol);
+                  const summaryKey = normalizeBusinessTicker(item.symbol);
                   const isSelectedEquity =
                     item.kind === 'equity' && isSelected && symU === selectedEquitySymbol;
-                  const pc = isSelectedEquity ? selectedPChange : undefined;
-                  const pctBusy =
-                    isSelectedEquity && selectedQuoteQuery.isFetching && pc == null;
-                  const pctLabel =
-                    item.kind === 'index'
-                      ? 'IDX'
-                      : pc == null
-                        ? pctBusy
-                          ? '…'
-                          : '—'
-                        : `${pc >= 0 ? '+' : ''}${pc.toFixed(2)}%`;
+                  void isSelectedEquity;
+                  void selectedPChange;
+                  const pctLabel = item.kind === 'index' ? 'IDX' : '—';
                   const pctClass =
                     item.kind === 'index'
                       ? 'text-violet-300'
-                      : pc == null
-                        ? 'text-gray-600'
-                        : pc > 0
-                          ? 'text-emerald-400'
-                          : pc < 0
-                            ? 'text-rose-400'
-                            : 'text-gray-400';
+                      : 'text-gray-600';
                   return (
                     <li key={item.id}>
                       <div
@@ -699,9 +695,19 @@ export default function WatchlistWorkspace() {
                               <span className="font-bold tracking-tight">{item.symbol}</span>
                               {isSelected &&
                               item.kind === 'equity' &&
-                              aiScoreByTicker.has(quantamentalTickerKey) ? (
-                                <span className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200">
-                                  AI {aiScoreByTicker.get(quantamentalTickerKey)?.quantamentalScore}%
+                              businessSummaryByTicker.has(summaryKey) ? (
+                                <span
+                                  className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200"
+                                  title={businessSummaryByTicker
+                                    .get(summaryKey)
+                                    ?.ratingReasons.join(' · ')}
+                                >
+                                  Business {businessSummaryByTicker.get(summaryKey)?.category}{' '}
+                                  {businessSummaryByTicker.get(summaryKey)?.direction === 'up'
+                                    ? '↑'
+                                    : businessSummaryByTicker.get(summaryKey)?.direction === 'down'
+                                      ? '↓'
+                                      : '→'}
                                 </span>
                               ) : null}
                               {item.kind === 'equity' && (stockTagsByTicker.get(symU)?.length ?? 0) > 0 ? (
