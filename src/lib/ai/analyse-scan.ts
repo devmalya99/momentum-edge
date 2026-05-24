@@ -34,11 +34,28 @@ export const analyseScanApiResponseSchema = z.object({
 export const stockNewsItemSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1),
-  link: z.string().trim().url(),
+  link: z.string().trim().url().optional(),
+  published: z.number().finite().optional(),
+  sourceHint: z.string().trim().max(80).optional(),
+  storyPath: z.string().trim().optional(),
+  provider: z
+    .object({
+      id: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const stockNewsApiResponseSchema = z.object({
-  items: z.array(stockNewsItemSchema).max(5),
+  items: z.array(stockNewsItemSchema),
+  sections: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        title: z.string().trim().min(1),
+      }),
+    )
+    .optional(),
 });
 
 export const stockTriggerRequestSchema = z.object({

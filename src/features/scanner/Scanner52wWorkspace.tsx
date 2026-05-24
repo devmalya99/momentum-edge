@@ -11,6 +11,7 @@ import {
   LineChart,
   Loader2,
   Network,
+  Newspaper,
   RefreshCcw,
   Sparkles,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget'
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import ScanAnalysisSheet from '@/features/scanner/ScanAnalysisSheet';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
+import StockNewsSheet from '@/features/scanner/StockNewsSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingViewIndiaScreenerQuery';
 import {
   quantamentalScoreTickerKey,
@@ -73,6 +75,7 @@ export default function Scanner52wWorkspace() {
 
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [newsSheetOpen, setNewsSheetOpen] = useState(false);
   const [scanAnalysisOpen, setScanAnalysisOpen] = useState(false);
   const { requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
   const [nowTs, setNowTs] = useState(() => Date.now());
@@ -455,6 +458,19 @@ export default function Scanner52wWorkspace() {
               type="button"
               onClick={() => {
                 if (!selectedStock) return;
+                setNewsSheetOpen(true);
+              }}
+              disabled={!selectedStock}
+              aria-label={selectedStock ? `News for ${selectedStock.ticker}` : 'News (select a stock first)'}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-[11px] font-semibold text-sky-200 transition-colors hover:bg-sky-500/18 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Newspaper className="h-3.5 w-3.5" aria-hidden />
+              News
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedStock) return;
                 requirePremiumForAi(() => setAiSheetOpen(true));
               }}
               disabled={!selectedStock}
@@ -519,6 +535,12 @@ export default function Scanner52wWorkspace() {
       </header>
 
 
+      <StockNewsSheet
+        open={newsSheetOpen}
+        onOpenChange={setNewsSheetOpen}
+        ticker={selectedStock?.ticker ?? ''}
+        companyName={selectedStock?.companyName ?? ''}
+      />
       <StockAiOverviewSheet
         open={aiSheetOpen}
         onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}

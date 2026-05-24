@@ -390,14 +390,18 @@ export default function ScanAnalysisSheet({
                               <ul className="space-y-1.5">
                                 {(newsBySymbol[symbolKey] ?? []).map((news) => (
                                   <li key={news.id}>
-                                    <a
-                                      href={news.link}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-[11px] text-blue-300 hover:underline"
-                                    >
-                                      {news.title}
-                                    </a>
+                                    {news.link ? (
+                                      <a
+                                        href={news.link}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[11px] text-blue-300 hover:underline"
+                                      >
+                                        {news.title}
+                                      </a>
+                                    ) : (
+                                      <span className="text-[11px] text-gray-300">{news.title}</span>
+                                    )}
                                   </li>
                                 ))}
                               </ul>

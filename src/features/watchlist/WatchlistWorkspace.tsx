@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { BookmarkCheck, LineChart, Loader2, Plus, Search, Trash2, ListPlus, Pencil, Sparkles } from 'lucide-react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import TechnicalChartScoreControl, {
@@ -23,7 +23,6 @@ import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
 import type { NseIndexSearchHit } from '@/app/api/nse/market-search/route';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
 import { useAuthStore } from '@/store/useAuthStore';
-import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
 import { useMembership } from '@/hooks/useMembership';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
@@ -108,74 +107,6 @@ export default function WatchlistWorkspace() {
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
 
-  const symbolsForQuotes = useMemo(() => {
-    const s = new Set<string>();
-    for (const w of itemsForList) {
-      if (w.kind === 'equity') s.add(w.symbol.trim().toUpperCase());
-    }
-    return [...s];
-  }, [itemsForList]);
-  const equityTickers = useMemo(
-    () =>
-      itemsForList.flatMap((item) => (item.kind === 'equity' ? [item.symbol] : [])),
-    [itemsForList],
-  );
-  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(equityTickers);
-  const technicalScoreTickers = equityTickers;
-  const quoteQueries = useQueries({
-    queries: symbolsForQuotes.map((symbol) => ({
-      queryKey: ['nse-equity-quote', symbol] as const,
-      queryFn: () => fetchNseEquityQuoteRow(symbol),
-      enabled: symbolsForQuotes.length > 0,
-      staleTime: 0,
-      gcTime: 30 * 60 * 1000,
-      refetchInterval: FIVE_MIN_MS,
-      refetchOnWindowFocus: true,
-    })),
-  });
-
-  const quoteDataSignature = quoteQueries
-    .map((q) => {
-      const row = q.data;
-      if (!row) return `${q.status}`;
-      return `${q.status}:${row.metaData?.pChange ?? 'x'}:${row.metaData?.closePrice ?? ''}`;
-    })
-    .join('|');
-
-  const symToQuoteIdx = useMemo(() => {
-    const m = new Map<string, number>();
-    symbolsForQuotes.forEach((sym, i) => m.set(sym, i));
-    return m;
-  }, [symbolsForQuotes]);
-
-  const pChangeBySymbol = useMemo(() => {
-    const m = new Map<string, number>();
-    symbolsForQuotes.forEach((sym) => {
-      const i = symToQuoteIdx.get(sym);
-      if (i == null) return;
-      const pc = quoteQueries[i]?.data?.metaData?.pChange;
-      if (typeof pc === 'number' && Number.isFinite(pc)) m.set(sym, pc);
-    });
-    return m;
-  }, [symbolsForQuotes, symToQuoteIdx, quoteDataSignature]);
-
-  const sortedWatchlist = useMemo(() => {
-    const rows = [...itemsForList];
-    if (sortMode === 'added') return rows;
-    rows.sort((a, b) => {
-      const sa = a.symbol.trim().toUpperCase();
-      const sb = b.symbol.trim().toUpperCase();
-      const pa = a.kind === 'equity' ? pChangeBySymbol.get(sa) : undefined;
-      const pb = b.kind === 'equity' ? pChangeBySymbol.get(sb) : undefined;
-      if (pa == null && pb == null) return b.addedAt - a.addedAt;
-      if (pa == null) return 1;
-      if (pb == null) return -1;
-      const cmp = sortMode === 'pct_desc' ? pb - pa : pa - pb;
-      if (cmp !== 0) return cmp;
-      return b.addedAt - a.addedAt;
-    });
-    return rows;
-  }, [itemsForList, sortMode, pChangeBySymbol]);
   const {
     staticTags,
     stockTagsByTicker,
@@ -184,7 +115,7 @@ export default function WatchlistWorkspace() {
     isFetchingStockTags,
     saveTags,
     isSavingTags,
-  } = useStockTagsQuery(technicalScoreTickers);
+  } = useStockTagsQuery([]);
   const staticTagLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const tag of staticTags) map.set(tag.id, tag.label);
@@ -209,28 +140,82 @@ export default function WatchlistWorkspace() {
     },
     [activeTagFilterSet, stockTagsByTicker],
   );
-  const filteredSortedWatchlist = useMemo(
-    () =>
-      sortedWatchlist.filter((item) => matchesActiveTagFilter(item.symbol, item.kind)),
-    [sortedWatchlist, matchesActiveTagFilter],
+  const tagFilteredItems = useMemo(
+    () => itemsForList.filter((item) => matchesActiveTagFilter(item.symbol, item.kind)),
+    [itemsForList, matchesActiveTagFilter],
   );
+
   const selectedItemId = useMemo(() => {
-    if (filteredSortedWatchlist.length === 0) return '';
-    if (queryItem && filteredSortedWatchlist.some((w) => w.id === queryItem)) return queryItem;
+    if (tagFilteredItems.length === 0) return '';
+    const byAdded = [...tagFilteredItems].sort((a, b) => b.addedAt - a.addedAt);
+    if (queryItem && byAdded.some((w) => w.id === queryItem)) return queryItem;
     if (legacySymbol) {
-      const byTv = filteredSortedWatchlist.find((w) => w.id === legacySymbol);
+      const byTv = byAdded.find((w) => w.id === legacySymbol);
       if (byTv) return byTv.id;
-      const symMatch = filteredSortedWatchlist.find(
+      const symMatch = byAdded.find(
         (w) => toTradingViewSymbol(w.symbol) === legacySymbol.trim(),
       );
       if (symMatch) return symMatch.id;
     }
-    return filteredSortedWatchlist[0].id;
-  }, [filteredSortedWatchlist, queryItem, legacySymbol]);
+    return byAdded[0].id;
+  }, [tagFilteredItems, queryItem, legacySymbol]);
+
   const selectedWatchlistItem = useMemo(
-    () => filteredSortedWatchlist.find((w) => w.id === selectedItemId) ?? null,
-    [filteredSortedWatchlist, selectedItemId],
+    () => tagFilteredItems.find((w) => w.id === selectedItemId) ?? null,
+    [tagFilteredItems, selectedItemId],
   );
+
+  const selectedEquitySymbol = useMemo(
+    () =>
+      selectedWatchlistItem?.kind === 'equity'
+        ? selectedWatchlistItem.symbol.trim().toUpperCase()
+        : '',
+    [selectedWatchlistItem],
+  );
+
+  const selectedEquityTickers = useMemo(
+    () => (selectedEquitySymbol ? [selectedEquitySymbol] : []),
+    [selectedEquitySymbol],
+  );
+
+  const { scoreByTicker: aiScoreByTicker } = useAiStockOverviewScoresQuery(selectedEquityTickers);
+
+  const selectedQuoteQuery = useQuery({
+    queryKey: ['nse-equity-quote', selectedEquitySymbol] as const,
+    queryFn: () => fetchNseEquityQuoteRow(selectedEquitySymbol),
+    enabled: selectedEquitySymbol.length > 0,
+    staleTime: 0,
+    gcTime: 30 * 60 * 1000,
+    refetchInterval: FIVE_MIN_MS,
+    refetchOnWindowFocus: true,
+  });
+
+  const selectedPChange = useMemo(() => {
+    const pc = selectedQuoteQuery.data?.metaData?.pChange;
+    return typeof pc === 'number' && Number.isFinite(pc) ? pc : undefined;
+  }, [selectedQuoteQuery.data]);
+
+  const sortedWatchlist = useMemo(() => {
+    const rows = [...tagFilteredItems];
+    if (sortMode === 'added') return rows;
+    rows.sort((a, b) => {
+      const sa = a.symbol.trim().toUpperCase();
+      const sb = b.symbol.trim().toUpperCase();
+      const pa =
+        a.kind === 'equity' && sa === selectedEquitySymbol ? selectedPChange : undefined;
+      const pb =
+        b.kind === 'equity' && sb === selectedEquitySymbol ? selectedPChange : undefined;
+      if (pa == null && pb == null) return b.addedAt - a.addedAt;
+      if (pa == null) return 1;
+      if (pb == null) return -1;
+      const cmp = sortMode === 'pct_desc' ? pb - pa : pa - pb;
+      if (cmp !== 0) return cmp;
+      return b.addedAt - a.addedAt;
+    });
+    return rows;
+  }, [tagFilteredItems, sortMode, selectedEquitySymbol, selectedPChange]);
+
+  const filteredSortedWatchlist = sortedWatchlist;
   const selectedTechnicalScoreTicker =
     selectedWatchlistItem?.kind === 'equity' ? selectedWatchlistItem.symbol.trim().toUpperCase() : '';
   const selectedAiStock = useMemo(
@@ -251,24 +236,6 @@ export default function WatchlistWorkspace() {
       selectedWatchlistItem.kind === 'index' ? 'index' : 'equity',
     );
   }, [selectedWatchlistItem]);
-
-  const chartPrefetchItems = useMemo(
-    () =>
-      filteredSortedWatchlist.map((item) => ({
-        symbol: item.symbol.trim().toUpperCase(),
-        seriesKind: item.kind === 'index' ? ('index' as const) : ('equity' as const),
-      })),
-    [filteredSortedWatchlist],
-  );
-  const selectedChartIndex = useMemo(
-    () => filteredSortedWatchlist.findIndex((item) => item.id === selectedItemId),
-    [filteredSortedWatchlist, selectedItemId],
-  );
-  useAdjacentNseChartPrefetch({
-    items: chartPrefetchItems,
-    currentIndex: selectedChartIndex,
-    enabled: chartMode === 'kline' && !!selectedWatchlistItem,
-  });
 
   const replaceWatchlistUrl = useCallback(
     (listId: string, itemId: string) => {
@@ -528,27 +495,29 @@ export default function WatchlistWorkspace() {
                       { id: 'pct_desc' as const, label: '% ▼' },
                       { id: 'pct_asc' as const, label: '% ▲' },
                     ] as const
-                  ).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setSortMode(opt.id)}
-                      title={
-                        opt.id === 'added'
-                          ? 'Newest additions first'
-                          : opt.id === 'pct_desc'
-                            ? 'Biggest gainers first'
-                            : 'Biggest losers first'
-                      }
-                      className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors ${
-                        sortMode === opt.id
-                          ? 'bg-blue-500/25 text-blue-200'
-                          : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  ).map((opt) => {
+                    const isPctSort = opt.id !== 'added';
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={isPctSort}
+                        onClick={() => setSortMode(opt.id)}
+                        title={
+                          opt.id === 'added'
+                            ? 'Newest additions first'
+                            : 'Percent sort needs a quote per symbol; only the selected row loads live %'
+                        }
+                        className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          sortMode === opt.id
+                            ? 'bg-blue-500/25 text-blue-200'
+                            : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -688,10 +657,11 @@ export default function WatchlistWorkspace() {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
                   const quantamentalTickerKey = quantamentalScoreTickerKey(item.symbol);
-                  const qi = symToQuoteIdx.get(symU);
-                  const q = qi != null ? quoteQueries[qi] : undefined;
-                  const pc = item.kind === 'equity' ? pChangeBySymbol.get(symU) : undefined;
-                  const pctBusy = item.kind === 'equity' && q?.isFetching && pc == null;
+                  const isSelectedEquity =
+                    item.kind === 'equity' && isSelected && symU === selectedEquitySymbol;
+                  const pc = isSelectedEquity ? selectedPChange : undefined;
+                  const pctBusy =
+                    isSelectedEquity && selectedQuoteQuery.isFetching && pc == null;
                   const pctLabel =
                     item.kind === 'index'
                       ? 'IDX'
@@ -727,7 +697,9 @@ export default function WatchlistWorkspace() {
                           <div className="flex items-baseline justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span className="font-bold tracking-tight">{item.symbol}</span>
-                              {item.kind === 'equity' && aiScoreByTicker.has(quantamentalTickerKey) ? (
+                              {isSelected &&
+                              item.kind === 'equity' &&
+                              aiScoreByTicker.has(quantamentalTickerKey) ? (
                                 <span className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200">
                                   AI {aiScoreByTicker.get(quantamentalTickerKey)?.quantamentalScore}%
                                 </span>
@@ -755,7 +727,9 @@ export default function WatchlistWorkspace() {
                               title={
                                 item.kind === 'index'
                                   ? 'Index row (chart uses NSE index series)'
-                                  : 'Today vs previous close (NSE)'
+                                  : isSelected
+                                    ? 'Today vs previous close (NSE)'
+                                    : 'Select row to load live %'
                               }
                             >
                               {pctLabel}
