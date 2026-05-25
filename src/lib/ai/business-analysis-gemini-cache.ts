@@ -1,19 +1,16 @@
 import type { GoogleGenAI } from '@google/genai';
 import {
-  buildBusinessAnalysisCachedReferenceContent,
   buildBusinessAnalysisHighlightsCachedReferenceContent,
   buildBusinessAnalysisHighlightsSystemInstruction,
-  buildBusinessAnalysisSystemInstruction,
   BUSINESS_ANALYSIS_GEMINI_CONTEXT_CACHE_TTL_SECONDS,
   BUSINESS_ANALYSIS_MODEL,
 } from '@/lib/ai/business-analysis';
 
 const LOG_TAG = '[business-analysis-gemini-cache]';
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 
-export type BusinessAnalysisGeminiCacheKind =
-  | 'business-analysis-grounded'
-  | 'business-analysis-highlights';
+/** Highlights only — grounded analysis cannot combine context cache with googleSearch. */
+export type BusinessAnalysisGeminiCacheKind = 'business-analysis-highlights';
 
 type CacheEntry = {
   name: string;
@@ -67,36 +64,20 @@ async function createContextCache(
   const displayName = buildDisplayName(kind);
   const ttl = `${BUSINESS_ANALYSIS_GEMINI_CONTEXT_CACHE_TTL_SECONDS}s`;
 
-  const cache =
-    kind === 'business-analysis-grounded'
-      ? await ai.caches.create({
-          model: BUSINESS_ANALYSIS_MODEL,
-          config: {
-            displayName,
-            ttl,
-            systemInstruction: buildBusinessAnalysisSystemInstruction(),
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: buildBusinessAnalysisCachedReferenceContent() }],
-              },
-            ],
-          },
-        })
-      : await ai.caches.create({
-          model: BUSINESS_ANALYSIS_MODEL,
-          config: {
-            displayName,
-            ttl,
-            systemInstruction: buildBusinessAnalysisHighlightsSystemInstruction(),
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: buildBusinessAnalysisHighlightsCachedReferenceContent() }],
-              },
-            ],
-          },
-        });
+  const cache = await ai.caches.create({
+    model: BUSINESS_ANALYSIS_MODEL,
+    config: {
+      displayName,
+      ttl,
+      systemInstruction: buildBusinessAnalysisHighlightsSystemInstruction(),
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: buildBusinessAnalysisHighlightsCachedReferenceContent() }],
+        },
+      ],
+    },
+  });
 
   if (!cache.name) {
     console.warn(`${LOG_TAG} create returned no name kind=${kind}`);

@@ -16,7 +16,6 @@ import {
   logGeminiTokenUsage,
   readTokenUsage,
 } from '@/lib/ai/business-analysis-gemini-utils';
-import { resolveBusinessAnalysisGeminiContextCache } from '@/lib/ai/business-analysis-gemini-cache';
 import { fetchTradingViewSymbolNewsForAnalysis } from '@/lib/news/fetch-tradingview-symbol-news';
 
 const LOG_TAG = '[business-analysis-generator]';
@@ -37,6 +36,20 @@ export type GeneratedBusinessAnalysis = {
   webSearchQueries: string[];
   model: string;
 };
+
+function logGroundingAudit(ticker: string, response: unknown): void {
+  if (!response || typeof response !== 'object' || !('candidates' in response)) return;
+  const candidates = Array.isArray(response.candidates) ? response.candidates : [];
+  const groundingMetadata = candidates[0]?.groundingMetadata;
+  const webSearchQueries = groundingMetadata?.webSearchQueries ?? [];
+  const groundingChunks = groundingMetadata?.groundingChunks ?? [];
+  const usage = readTokenUsage(response);
+
+  console.info(
+    `${LOG_TAG} grounding-audit ticker=${ticker} searches=${webSearchQueries.length} ` +
+      `sources=${groundingChunks.length} toolInput=${usage?.toolUsePromptTokens ?? 0}`,
+  );
+}
 
 export async function generateBusinessAnalysisWithContext(
   input: GenerateBusinessAnalysisInput,
@@ -60,27 +73,28 @@ export async function generateBusinessAnalysisWithContext(
     companyName,
     tradingViewHeadlines,
   });
-  const systemInstruction = buildBusinessAnalysisSystemInstruction();
-  const cachedContent = await resolveBusinessAnalysisGeminiContextCache(
-    ai,
-    'business-analysis-grounded',
-  );
 
+  // Gemini forbids tools on generateContent when cachedContent is set, and
+  // googleSearch baked into the cache returns empty text in practice — so we
+  // always run one uncached grounded call (highlights still use context cache).
   const modelRes = await ai.models.generateContent({
     model: BUSINESS_ANALYSIS_MODEL,
     contents: prompt,
-    config: cachedContent
-      ? { cachedContent, temperature: 0.1, tools: GROUNDING_TOOLS }
-      : { systemInstruction, temperature: 0.1, tools: GROUNDING_TOOLS },
+    config: {
+      systemInstruction: buildBusinessAnalysisSystemInstruction(),
+      temperature: 0.1,
+      tools: GROUNDING_TOOLS,
+    },
   });
 
   logGeminiTokenUsage({
     logTag: LOG_TAG,
     ticker,
-    callLabel: cachedContent ? 'generate-with-grounding-cached' : 'generate-with-grounding',
+    callLabel: 'generate-with-grounding',
     model: BUSINESS_ANALYSIS_MODEL,
     usage: readTokenUsage(modelRes),
   });
+  logGroundingAudit(ticker, modelRes);
 
   const modelText = extractModelText(modelRes);
   if (!modelText) {
