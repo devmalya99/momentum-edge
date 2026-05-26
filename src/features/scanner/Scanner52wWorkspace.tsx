@@ -17,10 +17,10 @@ import {
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import ScanAnalysisSheet from '@/features/scanner/ScanAnalysisSheet';
-import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
+import StockQuickAiCheckSheet from '@/features/scanner/StockQuickAiCheckSheet';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingViewIndiaScreenerQuery';
-import { useBusinessAnalysisSummariesQuery } from '@/features/ai/useBusinessAnalysisSummariesQuery';
+import { useBusinessEvaluationSummariesQuery } from '@/features/ai/useBusinessEvaluationSummariesQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { toBseTradingViewQuerySymbol } from '@/lib/tradingview-symbol';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
@@ -33,7 +33,10 @@ import {
 } from '@/components/ui/tooltip';
 import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
-import { normalizeBusinessTicker } from '@/lib/ai/business-analysis';
+import {
+  normalizeBusinessTicker,
+  quickAiCheckCategoryBadgeLabel,
+} from '@/lib/ai/quick-ai-check';
 
 function formatPrice(v: number | null): string {
   if (v == null) return '—';
@@ -59,7 +62,7 @@ export default function Scanner52wWorkspace() {
   const querySymbol = searchParams.get('symbol');
 
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
-  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [businessEvaluationOpen, setBusinessEvaluationOpen] = useState(false);
   const [newsSheetOpen, setNewsSheetOpen] = useState(false);
   const [scanAnalysisOpen, setScanAnalysisOpen] = useState(false);
   const { requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
@@ -70,8 +73,8 @@ export default function Scanner52wWorkspace() {
     [todaysSpecialQuery.data?.data],
   );
   const scannerListTickers = useMemo(() => tvRows.map((row) => row.ticker), [tvRows]);
-  const { summaryByTicker: businessSummaryByTicker } =
-    useBusinessAnalysisSummariesQuery(scannerListTickers);
+  const { summaryByTicker: evaluationSummaryByTicker } =
+    useBusinessEvaluationSummariesQuery(scannerListTickers);
   const watchlist = useTradeStore((s) => s.watchlist);
   const toggleWatchlist = useTradeStore((s) => s.toggleWatchlist);
   const isBookmarkedTicker = useCallback(
@@ -236,6 +239,23 @@ export default function Scanner52wWorkspace() {
               type="button"
               onClick={() => {
                 if (!selectedStock) return;
+                requirePremiumForAi(() => setBusinessEvaluationOpen(true));
+              }}
+              disabled={!selectedStock}
+              aria-label={
+                selectedStock
+                  ? `Business Evaluation for ${selectedStock.ticker}`
+                  : 'Business Evaluation (select a stock first)'
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/18 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              Business Evaluation
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedStock) return;
                 setNewsSheetOpen(true);
               }}
               disabled={!selectedStock}
@@ -244,23 +264,6 @@ export default function Scanner52wWorkspace() {
             >
               <Newspaper className="h-3.5 w-3.5" aria-hidden />
               News
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!selectedStock) return;
-                requirePremiumForAi(() => setAiSheetOpen(true));
-              }}
-              disabled={!selectedStock}
-              aria-label={
-                selectedStock
-                  ? `Business Analysis for ${selectedStock.ticker}`
-                  : 'Business Analysis (select a stock first)'
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-200 transition-colors hover:bg-violet-500/18 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Sparkles className="h-3.5 w-3.5" aria-hidden />
-              Business Analysis
             </button>
             <button
               type="button"
@@ -286,9 +289,9 @@ export default function Scanner52wWorkspace() {
         ticker={selectedStock?.ticker ?? ''}
         companyName={selectedStock?.companyName ?? ''}
       />
-      <StockAiOverviewSheet
-        open={aiSheetOpen}
-        onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}
+      <StockQuickAiCheckSheet
+        open={businessEvaluationOpen}
+        onOpenChange={(open) => guardAiSheetOpen(open, setBusinessEvaluationOpen)}
         ticker={selectedStock?.ticker ?? ''}
         companyName={selectedStock?.companyName ?? ''}
       />
@@ -342,7 +345,7 @@ export default function Scanner52wWorkspace() {
                       : row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
                   const bookmarked = isBookmarkedTicker(row.ticker);
-                  const businessSummary = businessSummaryByTicker.get(summaryKey);
+                  const evaluationSummary = evaluationSummaryByTicker.get(summaryKey);
                   return (
                     <li
                       key={row.tvSymbol}
@@ -367,17 +370,12 @@ export default function Scanner52wWorkspace() {
                               >
                                 {row.ticker.replace(/^(NSE:|BSE:)/, '')}
                               </span>
-                              {businessSummary ? (
+                              {evaluationSummary ? (
                                 <span
                                   className="rounded border border-violet-400/25 bg-violet-500/12 px-1.5 py-px text-[9px] font-bold tracking-wide text-violet-300"
-                                  title={businessSummary.ratingReasons.join(' · ')}
+                                  title={evaluationSummary.ratingReasons.join(' · ')}
                                 >
-                                  Business {businessSummary.category}{' '}
-                                  {businessSummary.direction === 'up'
-                                    ? '↑'
-                                    : businessSummary.direction === 'down'
-                                      ? '↓'
-                                      : '→'}
+                                  {quickAiCheckCategoryBadgeLabel(evaluationSummary.category)}
                                 </span>
                               ) : null}
                             </div>
