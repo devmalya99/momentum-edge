@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getSessionFromCookies } from '@/lib/auth/server-session';
 import { requirePremiumMembership } from '@/lib/membership/server';
-import { businessAnalysisSummariesRequestSchema, businessAnalysisSummariesResponseSchema } from '@/lib/ai/business-analysis';
-import { listAiBusinessAnalysisSummaries } from '@/lib/db/ai-business-analysis-cache';
+import {
+  quickAiCheckSummariesRequestSchema,
+  quickAiCheckSummariesResponseSchema,
+} from '@/lib/ai/quick-ai-check';
+import { listAiQuickAiCheckSummaries } from '@/lib/db/ai-quick-ai-check-cache';
 
-const API_TAG = '[api/ai/business-analysis/summaries]';
+const API_TAG = '[api/ai/quick-ai-check/summaries]';
 
 export async function POST(request: Request) {
   try {
@@ -13,21 +16,17 @@ export async function POST(request: Request) {
     const premiumGate = await requirePremiumMembership(session.sub);
     if (premiumGate) return premiumGate;
 
-    const payload = businessAnalysisSummariesRequestSchema.parse(await request.json());
-    const rows = await listAiBusinessAnalysisSummaries(payload.tickers);
+    const payload = quickAiCheckSummariesRequestSchema.parse(await request.json());
+    const rows = await listAiQuickAiCheckSummaries(payload.tickers);
     const nowMs = Date.now();
 
-    const response = businessAnalysisSummariesResponseSchema.parse({
+    const response = quickAiCheckSummariesResponseSchema.parse({
       summaries: rows.map((row) => {
         const staleAfterMs = Date.parse(row.staleAfter);
         const isStale = Number.isNaN(staleAfterMs) ? true : staleAfterMs <= nowMs;
         return {
           ticker: row.ticker,
           category: row.category,
-          compositeScore: row.compositeScore,
-          direction: row.direction,
-          previousCategory: row.previousCategory ?? undefined,
-          previousCompositeScore: row.previousCompositeScore ?? undefined,
           ratingReasons: row.ratingReasons.slice(0, 4),
           isStale,
         };
@@ -37,8 +36,8 @@ export async function POST(request: Request) {
     return NextResponse.json(response);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : 'Failed to load business analysis summaries';
+      error instanceof Error ? error.message : 'Failed to load business evaluation summaries';
     console.error(`${API_TAG} failed: ${message}`);
-    return NextResponse.json({ error: 'Failed to load business analysis summaries' }, { status: 400 });
+    return NextResponse.json({ error: 'Failed to load business evaluation summaries' }, { status: 400 });
   }
 }

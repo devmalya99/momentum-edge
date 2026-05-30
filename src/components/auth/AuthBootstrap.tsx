@@ -20,6 +20,8 @@ export function AuthBootstrap() {
         if (!cancelled) {
           setUser(data.user ?? null);
         }
+      } catch {
+        if (!cancelled) setUser(null);
       } finally {
         if (!cancelled) setBootstrapping(false);
       }

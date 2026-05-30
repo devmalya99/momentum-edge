@@ -41,7 +41,7 @@ const NAV_ITEMS = [
   { id: 'networth', label: 'Networth', icon: PieChart, href: '/networth' },
   { id: 'analytics', label: 'Analytics', icon: BarChart2, href: '/analytics' },
   { id: 'market-view', label: 'Market View', icon: Globe, href: '/market-view' },
-  { id: '52h-scanner', label: 'Scanner', icon: ScanSearch, href: '/52w-scanner' },
+  { id: 'scanner', label: 'Scanner', icon: ScanSearch, href: '/scanner' },
   { id: 'ai-news-search', label: 'AI News Search', icon: Sparkles, href: '/ai-news-search' },
   { id: 'watchlist', label: 'Watchlist', icon: Bookmark, href: '/watchlist' },
   { id: 'zeroth', label: 'Zeroth', icon: BellRing, href: '/zeroth' },
@@ -57,11 +57,10 @@ export default function Layout({ children }: LayoutProps) {
   const user = useAuthStore((s) => s.user);
   const logoutLocal = useAuthStore((s) => s.logoutLocal);
 
-  const wideContent =
-    pathname === '/stock-charts' || pathname === '/52w-scanner' || pathname === '/watchlist';
-  const fullHeightWorkspace = pathname === '/52w-scanner';
+  const wideContent = pathname === '/stock-charts' || pathname === '/scanner' || pathname === '/watchlist';
+  const fullHeightWorkspace = pathname === '/scanner';
   const forceMinimalSidebar = useMemo(
-    () => pathname === '/52w-scanner' || pathname === '/watchlist',
+    () => pathname === '/scanner' || pathname === '/watchlist',
     [pathname],
   );
   const sidebarExpanded = !forceMinimalSidebar && isSidebarOpen;

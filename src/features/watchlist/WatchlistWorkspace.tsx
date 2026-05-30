@@ -10,9 +10,6 @@ import TechnicalChartScoreControl, {
   compactStockTagLabel,
   stockTagBadgeClass,
 } from '@/components/TechnicalChartScoreControl';
-import {
-  useBusinessAnalysisSummariesQuery,
-} from '@/features/ai/useBusinessAnalysisSummariesQuery';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
@@ -26,7 +23,6 @@ import { useMembership } from '@/hooks/useMembership';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
 import { useMembershipUpgradeStore } from '@/store/useMembershipUpgradeStore';
-import { normalizeBusinessTicker } from '@/lib/ai/business-analysis';
 
 type WatchlistSortMode = 'added' | 'pct_desc' | 'pct_asc';
 
@@ -102,7 +98,7 @@ export default function WatchlistWorkspace() {
 
   const [sortMode, setSortMode] = useState<WatchlistSortMode>('added');
   const [chartMode, setChartMode] = useState<'kline' | 'tradingview'>('kline');
-  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const [businessEvaluationOpen, setBusinessEvaluationOpen] = useState(false);
   const [newsSheetOpen, setNewsSheetOpen] = useState(false);
   const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
 
@@ -171,14 +167,6 @@ export default function WatchlistWorkspace() {
         : '',
     [selectedWatchlistItem],
   );
-
-  const selectedEquityTickers = useMemo(
-    () => (selectedEquitySymbol ? [selectedEquitySymbol] : []),
-    [selectedEquitySymbol],
-  );
-
-  const { summaryByTicker: businessSummaryByTicker } =
-    useBusinessAnalysisSummariesQuery(selectedEquityTickers);
 
   const selectedPChange: number | undefined = undefined;
 
@@ -401,6 +389,24 @@ export default function WatchlistWorkspace() {
             type="button"
             onClick={() => {
               if (!selectedAiStock) return;
+              requirePremiumForAi(() => setBusinessEvaluationOpen(true));
+            }}
+            disabled={!selectedAiStock}
+            aria-label={
+              selectedAiStock
+                ? `Business Analysis for ${selectedAiStock.ticker}`
+                : 'Business Analysis (select an equity stock first)'
+            }
+            title={!isPremium ? 'Premium membership required for Business Analysis' : undefined}
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Business Analysis
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!selectedAiStock) return;
               setNewsSheetOpen(true);
             }}
             disabled={!selectedAiStock}
@@ -414,24 +420,6 @@ export default function WatchlistWorkspace() {
             <Newspaper className="h-3.5 w-3.5" aria-hidden />
             News
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!selectedAiStock) return;
-              requirePremiumForAi(() => setAiSheetOpen(true));
-            }}
-            disabled={!selectedAiStock}
-            aria-label={
-              selectedAiStock
-                ? `Business Analysis for ${selectedAiStock.ticker}`
-                : 'Business Analysis (select an equity stock first)'
-            }
-            title={!isPremium ? 'Premium membership required for Business Analysis' : undefined}
-            className="inline-flex items-center gap-2 rounded-xl border border-purple-400/30 bg-purple-500/10 px-3 py-2 text-xs font-semibold text-purple-100 hover:bg-purple-500/20 disabled:opacity-50"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Business Analysis
-          </button>
         </div>
       </div>
 
@@ -442,8 +430,8 @@ export default function WatchlistWorkspace() {
         companyName={selectedAiStock?.companyName ?? ''}
       />
       <StockAiOverviewSheet
-        open={aiSheetOpen}
-        onOpenChange={(open) => guardAiSheetOpen(open, setAiSheetOpen)}
+        open={businessEvaluationOpen}
+        onOpenChange={(open) => guardAiSheetOpen(open, setBusinessEvaluationOpen)}
         ticker={selectedAiStock?.ticker ?? ''}
         companyName={selectedAiStock?.companyName ?? ''}
       />
@@ -666,7 +654,6 @@ export default function WatchlistWorkspace() {
                 {filteredSortedWatchlist.map((item) => {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
-                  const summaryKey = normalizeBusinessTicker(item.symbol);
                   const isSelectedEquity =
                     item.kind === 'equity' && isSelected && symU === selectedEquitySymbol;
                   void isSelectedEquity;
@@ -693,23 +680,6 @@ export default function WatchlistWorkspace() {
                           <div className="flex items-baseline justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span className="font-bold tracking-tight">{item.symbol}</span>
-                              {isSelected &&
-                              item.kind === 'equity' &&
-                              businessSummaryByTicker.has(summaryKey) ? (
-                                <span
-                                  className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200"
-                                  title={businessSummaryByTicker
-                                    .get(summaryKey)
-                                    ?.ratingReasons.join(' · ')}
-                                >
-                                  Business {businessSummaryByTicker.get(summaryKey)?.category}{' '}
-                                  {businessSummaryByTicker.get(summaryKey)?.direction === 'up'
-                                    ? '↑'
-                                    : businessSummaryByTicker.get(summaryKey)?.direction === 'down'
-                                      ? '↓'
-                                      : '→'}
-                                </span>
-                              ) : null}
                               {item.kind === 'equity' && (stockTagsByTicker.get(symU)?.length ?? 0) > 0 ? (
                                 <div className="flex items-center gap-1">
                                   {(stockTagsByTicker.get(symU) ?? []).slice(0, 2).map((tagId) => (
