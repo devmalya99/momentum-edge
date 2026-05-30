@@ -7,20 +7,133 @@ import {
   businessAnalysisRequestSchema,
   businessAnalysisResponseSchema,
   BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
-  deriveDirection,
   normalizeBusinessTicker,
   sanitizeBusinessAnalysisSources,
 } from '@/lib/ai/business-analysis';
-import { generateBusinessAnalysisWithContext } from '@/lib/ai/business-analysis-generator';
+import {
+  buildGeneratedReportFromStreamFinish,
+  streamBusinessAnalysisReport,
+  type GeneratedBusinessAnalysisReport,
+} from '@/lib/ai/business-analysis-report-generator';
 import {
   getAiBusinessAnalysisCache,
   upsertAiBusinessAnalysisCache,
 } from '@/lib/db/ai-business-analysis-cache';
+import { businessAnalysisLog } from '@/lib/ai/business-analysis-stream-log';
 
 const API_TAG = '[api/ai/business-analysis]';
 
 function buildCacheKey(ticker: string): string {
   return `TICKER:${normalizeBusinessTicker(ticker)}`;
+}
+
+type BusinessAnalysisPayload = ReturnType<typeof businessAnalysisResponseSchema.parse>;
+
+function streamHeaders(): HeadersInit {
+  return {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  };
+}
+
+function toCachedTextStreamResponse(
+  object: unknown,
+  meta: Record<string, unknown>,
+): Response {
+  const jsonText = JSON.stringify(object);
+  businessAnalysisLog.api('cache-stream-response', {
+    ...meta,
+    payloadChars: jsonText.length,
+    instant: true,
+  });
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(jsonText));
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: streamHeaders() });
+}
+
+function buildBasicPayload(input: {
+  ticker: string;
+  companyName: string;
+  generated: GeneratedBusinessAnalysisReport;
+  generatedAt: Date;
+  cacheExpiresAt: Date;
+  cacheStatus: 'hit' | 'miss' | 'stale-refreshed';
+}): BusinessAnalysisPayload {
+  return businessAnalysisResponseSchema.parse({
+    ticker: input.ticker,
+    companyName: input.companyName,
+    report: {
+      story: input.generated.report.story,
+      tailwinds: input.generated.report.tailwinds,
+      business_exposure: input.generated.report.business_exposure,
+      business_strength: [],
+      recent_transformations: [],
+      proof: [],
+    },
+    sources: sanitizeBusinessAnalysisSources(input.generated.sources),
+    meta: {
+      model: input.generated.model,
+      generatedAt: input.generatedAt.toISOString(),
+      cacheExpiresAt: input.cacheExpiresAt.toISOString(),
+      cacheStatus: input.cacheStatus,
+      webSearchQueries: input.generated.webSearchQueries,
+      extendedFetched: false,
+    },
+  });
+}
+
+function buildExtendedPayload(input: {
+  ticker: string;
+  companyName: string;
+  generated: GeneratedBusinessAnalysisReport;
+  baseReport: BusinessAnalysisPayload['report'];
+  cachedSources: BusinessAnalysisPayload['sources'];
+  generatedAt: Date;
+  cacheExpiresAt: Date;
+  cacheStatus: 'hit' | 'miss' | 'stale-refreshed';
+}): BusinessAnalysisPayload {
+  return businessAnalysisResponseSchema.parse({
+    ticker: input.ticker,
+    companyName: input.companyName,
+    report: {
+      ...input.baseReport,
+      business_strength: input.generated.report.business_strength,
+      recent_transformations: input.generated.report.recent_transformations,
+      proof: input.generated.report.proof,
+    },
+    sources: sanitizeBusinessAnalysisSources([...input.cachedSources, ...input.generated.sources]),
+    meta: {
+      model: input.generated.model,
+      generatedAt: input.generatedAt.toISOString(),
+      cacheExpiresAt: input.cacheExpiresAt.toISOString(),
+      cacheStatus: input.cacheStatus,
+      webSearchQueries: input.generated.webSearchQueries,
+      extendedFetched: true,
+    },
+  });
+}
+
+function cachedReportSlice(
+  report: BusinessAnalysisPayload['report'],
+  detailLevel: 'basic' | 'extended',
+) {
+  if (detailLevel === 'basic') {
+    return {
+      story: report.story,
+      tailwinds: report.tailwinds,
+      business_exposure: report.business_exposure,
+    };
+  }
+  return {
+    business_strength: report.business_strength,
+    recent_transformations: report.recent_transformations,
+    proof: report.proof,
+  };
 }
 
 export const dynamic = 'force-dynamic';
@@ -39,84 +152,145 @@ export async function POST(request: Request) {
     const ticker = normalizeBusinessTicker(parsed.ticker);
     const companyName = parsed.companyName.trim();
     const refresh = parsed.refresh === true;
+    const detailLevel = parsed.detailLevel ?? 'basic';
     const cacheKey = buildCacheKey(ticker);
     const cached = await getAiBusinessAnalysisCache(cacheKey);
     const nowMs = Date.now();
+
+    businessAnalysisLog.api('request', {
+      ticker,
+      companyName,
+      detailLevel,
+      refresh,
+      hasDbCache: Boolean(cached),
+    });
 
     if (!refresh && cached) {
       const staleAfterMs = Date.parse(cached.staleAfter);
       const isStale = Number.isNaN(staleAfterMs) ? true : staleAfterMs <= nowMs;
       if (!isStale) {
-        const payload = businessAnalysisResponseSchema.parse({
-          ...cached.payload,
-          sources: sanitizeBusinessAnalysisSources(cached.payload.sources ?? []),
-          meta: {
-            ...cached.payload.meta,
-            cacheStatus: 'hit',
-          },
-        });
-        return NextResponse.json(payload);
+        const hasExtended = cached.payload.meta?.extendedFetched === true;
+        if (detailLevel === 'basic' || hasExtended) {
+          const parsedPayload = businessAnalysisResponseSchema.safeParse({
+            ...cached.payload,
+            sources: sanitizeBusinessAnalysisSources(cached.payload.sources ?? []),
+            meta: {
+              ...cached.payload.meta,
+              cacheStatus: 'hit',
+            },
+          });
+          if (parsedPayload.success) {
+            businessAnalysisLog.api('cache-hit', { ticker, detailLevel, source: 'db' });
+            return toCachedTextStreamResponse(
+              cachedReportSlice(parsedPayload.data.report, detailLevel),
+              { ticker, detailLevel, source: 'db' },
+            );
+          }
+          businessAnalysisLog.api('cache-hit-parse-failed', { ticker, detailLevel });
+        } else {
+          businessAnalysisLog.api('cache-hit-missing-extended', { ticker, detailLevel });
+        }
+      } else {
+        businessAnalysisLog.api('cache-stale', { ticker, detailLevel });
       }
     }
-
-    const generated = await generateBusinessAnalysisWithContext({
-      ticker,
-      companyName,
-    });
-    const previousCategory = cached?.category ?? null;
-    const previousCompositeScore = cached?.compositeScore ?? null;
-    const direction = deriveDirection({
-      currentCategory: generated.llmPayload.category,
-      currentCompositeScore: generated.compositeScore,
-      previousCategory,
-      previousCompositeScore,
-    });
 
     const generatedAt = new Date();
     const cacheExpiresAt = new Date(generatedAt.getTime() + BUSINESS_ANALYSIS_CACHE_TTL_SECONDS * 1000);
     const cacheStatus = cached ? 'stale-refreshed' : 'miss';
 
-    const payload = businessAnalysisResponseSchema.parse({
-      ticker,
-      companyName,
-      category: generated.llmPayload.category,
-      compositeScore: generated.compositeScore,
-      direction,
-      previousCategory: previousCategory ?? undefined,
-      previousCompositeScore: previousCompositeScore ?? undefined,
-      scorecard: generated.llmPayload.scorecard,
-      businessSegments: generated.llmPayload.businessSegments,
-      executiveSummary: '',
-      ratingReasons: generated.llmPayload.ratingReasons,
-      keyPositives: [],
-      keyRisks: [],
-      sources: sanitizeBusinessAnalysisSources(generated.sources),
-      meta: {
-        model: generated.model,
-        generatedAt: generatedAt.toISOString(),
-        cacheExpiresAt: cacheExpiresAt.toISOString(),
-        cacheStatus,
-        webSearchQueries: generated.webSearchQueries,
+    businessAnalysisLog.api('live-stream-start', { ticker, detailLevel, cacheStatus });
+
+    const result = streamBusinessAnalysisReport(
+      {
+        ticker,
+        companyName,
+        detailLevel,
       },
-    });
+      {
+        onFinish: async ({ text, providerMetadata }) => {
+          try {
+            businessAnalysisLog.api('live-stream-finish-callback', {
+              ticker,
+              detailLevel,
+              textChars: text.length,
+            });
+            const generated = await buildGeneratedReportFromStreamFinish({
+              ticker,
+              companyName,
+              detailLevel,
+              text,
+              providerMetadata,
+            });
 
-    await upsertAiBusinessAnalysisCache({
-      cacheKey,
-      ticker,
-      companyName,
-      payload,
-      category: payload.category,
-      compositeScore: payload.compositeScore,
-      direction: payload.direction,
-      ratingReasons: payload.ratingReasons,
-      previousCategory: payload.previousCategory ?? null,
-      previousCompositeScore: payload.previousCompositeScore ?? null,
-      model: generated.model,
-      generatedAtIso: payload.meta.generatedAt,
-      staleAfterIso: payload.meta.cacheExpiresAt,
-    });
+            if (detailLevel === 'basic') {
+              const payload = buildBasicPayload({
+                ticker,
+                companyName,
+                generated,
+                generatedAt,
+                cacheExpiresAt,
+                cacheStatus,
+              });
+              await upsertAiBusinessAnalysisCache({
+                cacheKey,
+                ticker,
+                companyName,
+                payload,
+                model: generated.model,
+                generatedAtIso: payload.meta.generatedAt,
+                staleAfterIso: payload.meta.cacheExpiresAt,
+              });
+              businessAnalysisLog.api('cache-persist-success', {
+                ticker,
+                detailLevel: 'basic',
+                cacheStatus,
+              });
+              return;
+            }
 
-    return NextResponse.json(payload);
+            const payload = buildExtendedPayload({
+              ticker,
+              companyName,
+              generated,
+              baseReport: cached?.payload.report ?? {
+                story: '',
+                tailwinds: [],
+                business_exposure: [],
+                business_strength: [],
+                recent_transformations: [],
+                proof: [],
+              },
+              cachedSources: cached?.payload.sources ?? [],
+              generatedAt,
+              cacheExpiresAt,
+              cacheStatus,
+            });
+            await upsertAiBusinessAnalysisCache({
+              cacheKey,
+              ticker,
+              companyName,
+              payload,
+              model: generated.model,
+              generatedAtIso: payload.meta.generatedAt,
+              staleAfterIso: payload.meta.cacheExpiresAt,
+            });
+            businessAnalysisLog.api('cache-persist-success', {
+              ticker,
+              detailLevel: 'extended',
+              cacheStatus,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`${API_TAG} cache persist failed: ${message}`);
+            businessAnalysisLog.api('cache-persist-failed', { ticker, detailLevel, message });
+          }
+        },
+      },
+    );
+
+    businessAnalysisLog.api('return-text-stream', { ticker, detailLevel });
+    return result.toTextStreamResponse({ headers: streamHeaders() });
   } catch (error) {
     if (error instanceof ZodError) {
       console.error(`${API_TAG} validation failed`, JSON.stringify(error.issues));

@@ -10,9 +10,8 @@ import TechnicalChartScoreControl, {
   compactStockTagLabel,
   stockTagBadgeClass,
 } from '@/components/TechnicalChartScoreControl';
-import { useBusinessEvaluationSummariesQuery } from '@/features/ai/useBusinessEvaluationSummariesQuery';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
-import StockQuickAiCheckSheet from '@/features/scanner/StockQuickAiCheckSheet';
+import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
 import { useTradeStore } from '@/store/useTradeStore';
@@ -24,10 +23,6 @@ import { useMembership } from '@/hooks/useMembership';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
 import { BASIC_WATCHLIST_LIMIT } from '@/lib/membership/constants';
 import { useMembershipUpgradeStore } from '@/store/useMembershipUpgradeStore';
-import {
-  normalizeBusinessTicker,
-  quickAiCheckCategoryBadgeLabel,
-} from '@/lib/ai/quick-ai-check';
 
 type WatchlistSortMode = 'added' | 'pct_desc' | 'pct_asc';
 
@@ -172,17 +167,6 @@ export default function WatchlistWorkspace() {
         : '',
     [selectedWatchlistItem],
   );
-
-  const visibleEquityTickers = useMemo(
-    () =>
-      tagFilteredItems
-        .filter((item) => item.kind === 'equity')
-        .map((item) => item.symbol.trim().toUpperCase()),
-    [tagFilteredItems],
-  );
-
-  const { summaryByTicker: evaluationSummaryByTicker } =
-    useBusinessEvaluationSummariesQuery(visibleEquityTickers);
 
   const selectedPChange: number | undefined = undefined;
 
@@ -410,14 +394,14 @@ export default function WatchlistWorkspace() {
             disabled={!selectedAiStock}
             aria-label={
               selectedAiStock
-                ? `Business Evaluation for ${selectedAiStock.ticker}`
-                : 'Business Evaluation (select an equity stock first)'
+                ? `Business Analysis for ${selectedAiStock.ticker}`
+                : 'Business Analysis (select an equity stock first)'
             }
-            title={!isPremium ? 'Premium membership required for Business Evaluation' : undefined}
+            title={!isPremium ? 'Premium membership required for Business Analysis' : undefined}
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Business Evaluation
+            Business Analysis
           </button>
           <button
             type="button"
@@ -445,7 +429,7 @@ export default function WatchlistWorkspace() {
         ticker={selectedAiStock?.ticker ?? ''}
         companyName={selectedAiStock?.companyName ?? ''}
       />
-      <StockQuickAiCheckSheet
+      <StockAiOverviewSheet
         open={businessEvaluationOpen}
         onOpenChange={(open) => guardAiSheetOpen(open, setBusinessEvaluationOpen)}
         ticker={selectedAiStock?.ticker ?? ''}
@@ -670,7 +654,6 @@ export default function WatchlistWorkspace() {
                 {filteredSortedWatchlist.map((item) => {
                   const isSelected = item.id === selectedItemId;
                   const symU = item.symbol.trim().toUpperCase();
-                  const summaryKey = normalizeBusinessTicker(item.symbol);
                   const isSelectedEquity =
                     item.kind === 'equity' && isSelected && symU === selectedEquitySymbol;
                   void isSelectedEquity;
@@ -697,18 +680,6 @@ export default function WatchlistWorkspace() {
                           <div className="flex items-baseline justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-1.5">
                               <span className="font-bold tracking-tight">{item.symbol}</span>
-                              {item.kind === 'equity' && evaluationSummaryByTicker.has(summaryKey) ? (
-                                <span
-                                  className="rounded-md border border-purple-400/30 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-bold text-purple-200"
-                                  title={evaluationSummaryByTicker
-                                    .get(summaryKey)
-                                    ?.ratingReasons.join(' · ')}
-                                >
-                                  {quickAiCheckCategoryBadgeLabel(
-                                    evaluationSummaryByTicker.get(summaryKey)!.category,
-                                  )}
-                                </span>
-                              ) : null}
                               {item.kind === 'equity' && (stockTagsByTicker.get(symU)?.length ?? 0) > 0 ? (
                                 <div className="flex items-center gap-1">
                                   {(stockTagsByTicker.get(symU) ?? []).slice(0, 2).map((tagId) => (

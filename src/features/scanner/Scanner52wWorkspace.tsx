@@ -17,10 +17,9 @@ import {
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import ScanAnalysisSheet from '@/features/scanner/ScanAnalysisSheet';
-import StockQuickAiCheckSheet from '@/features/scanner/StockQuickAiCheckSheet';
+import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
 import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingViewIndiaScreenerQuery';
-import { useBusinessEvaluationSummariesQuery } from '@/features/ai/useBusinessEvaluationSummariesQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { toBseTradingViewQuerySymbol } from '@/lib/tradingview-symbol';
 import { DEFAULT_WATCHLIST_LIST_ID } from '@/lib/watchlist-defaults';
@@ -33,10 +32,6 @@ import {
 } from '@/components/ui/tooltip';
 import { useAdjacentNseChartPrefetch } from '@/hooks/useAdjacentNseChartPrefetch';
 import { usePremiumAiGate } from '@/hooks/usePremiumAiGate';
-import {
-  normalizeBusinessTicker,
-  quickAiCheckCategoryBadgeLabel,
-} from '@/lib/ai/quick-ai-check';
 
 function formatPrice(v: number | null): string {
   if (v == null) return '—';
@@ -72,9 +67,6 @@ export default function Scanner52wWorkspace() {
     () => (todaysSpecialQuery.data?.data ?? []).map((row) => tradingViewScreenerRowToListItem(row)),
     [todaysSpecialQuery.data?.data],
   );
-  const scannerListTickers = useMemo(() => tvRows.map((row) => row.ticker), [tvRows]);
-  const { summaryByTicker: evaluationSummaryByTicker } =
-    useBusinessEvaluationSummariesQuery(scannerListTickers);
   const watchlist = useTradeStore((s) => s.watchlist);
   const toggleWatchlist = useTradeStore((s) => s.toggleWatchlist);
   const isBookmarkedTicker = useCallback(
@@ -153,7 +145,7 @@ export default function Scanner52wWorkspace() {
       const nextQuery = params.toString();
       const currentQuery = searchParams.toString();
       if (nextQuery !== currentQuery) {
-        router.replace(nextQuery ? `/52w-scanner?${nextQuery}` : '/52w-scanner', { scroll: false });
+        router.replace(nextQuery ? `/scanner?${nextQuery}` : '/scanner', { scroll: false });
       }
     }
   }, [tvRows, querySymbol, router, searchParams]);
@@ -169,7 +161,7 @@ export default function Scanner52wWorkspace() {
       const params = new URLSearchParams(searchParams.toString());
       params.delete('tab');
       params.set('symbol', tvSymbol);
-      router.replace(`/52w-scanner?${params.toString()}`, { scroll: false });
+      router.replace(`/scanner?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
   );
@@ -244,13 +236,13 @@ export default function Scanner52wWorkspace() {
               disabled={!selectedStock}
               aria-label={
                 selectedStock
-                  ? `Business Evaluation for ${selectedStock.ticker}`
-                  : 'Business Evaluation (select a stock first)'
+                  ? `Business Analysis for ${selectedStock.ticker}`
+                  : 'Business Analysis (select a stock first)'
               }
               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200 transition-colors hover:bg-emerald-500/18 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
-              Business Evaluation
+              Business Analysis
             </button>
             <button
               type="button"
@@ -289,7 +281,7 @@ export default function Scanner52wWorkspace() {
         ticker={selectedStock?.ticker ?? ''}
         companyName={selectedStock?.companyName ?? ''}
       />
-      <StockQuickAiCheckSheet
+      <StockAiOverviewSheet
         open={businessEvaluationOpen}
         onOpenChange={(open) => guardAiSheetOpen(open, setBusinessEvaluationOpen)}
         ticker={selectedStock?.ticker ?? ''}
@@ -335,7 +327,6 @@ export default function Scanner52wWorkspace() {
                 {tvRows.map((row) => {
                   const isSelected = row.tvSymbol === selectedTvSymbol;
                   const upperTicker = row.ticker.trim().toUpperCase();
-                  const summaryKey = normalizeBusinessTicker(row.ticker);
                   const ch =
                     isSelected &&
                     selectedTickerForQuote === upperTicker &&
@@ -345,7 +336,6 @@ export default function Scanner52wWorkspace() {
                       : row.changePct;
                   const isPositive = ch == null ? true : ch >= 0;
                   const bookmarked = isBookmarkedTicker(row.ticker);
-                  const evaluationSummary = evaluationSummaryByTicker.get(summaryKey);
                   return (
                     <li
                       key={row.tvSymbol}
@@ -370,14 +360,6 @@ export default function Scanner52wWorkspace() {
                               >
                                 {row.ticker.replace(/^(NSE:|BSE:)/, '')}
                               </span>
-                              {evaluationSummary ? (
-                                <span
-                                  className="rounded border border-violet-400/25 bg-violet-500/12 px-1.5 py-px text-[9px] font-bold tracking-wide text-violet-300"
-                                  title={evaluationSummary.ratingReasons.join(' · ')}
-                                >
-                                  {quickAiCheckCategoryBadgeLabel(evaluationSummary.category)}
-                                </span>
-                              ) : null}
                             </div>
                             {ch != null ? (
                               <span
