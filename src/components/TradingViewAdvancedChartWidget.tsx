@@ -21,7 +21,7 @@ function buildConfig(tvSymbol: string) {
     hide_legend: false,
     hide_volume: false,
     hotlist: false,
-    interval: 'W',
+    interval: 'D',
     locale: 'en',
     save_image: true,
     style: '1',
@@ -36,7 +36,7 @@ function buildConfig(tvSymbol: string) {
     show_popup_button: true,
     popup_height: '650',
     popup_width: '1000',
-    studies: ['STD;RSI', 'STD;EMA' , 'STD;ROC'],
+    studies: ['STD;RSI', 'STD;MA%Ribbon'],
     autosize: true,
   };
 }

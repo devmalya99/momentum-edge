@@ -44,6 +44,15 @@ This document tracks major technical milestones and feature implementations.
 - **Analyse Market short-circuit**: Uses cached verdict + position size when the index entry is fresh, skipping a per-click LLM call.
 - **Removed legacy panel**: NIFTY 500 `NseIndexDetailsPanel` and `/api/nse/index-details` retired from Market View.
 
+## ✅ Phase 10: Stock Grade AI (Scanner & Watchlist)
+- **On-demand momentum classification**: Five-label desk grade — Exploding, Super growth, Turning around, Nothing big yet, In stress — with a 20–30 word grounded reason.
+- **Vercel AI SDK + Google Search grounding**: `generateText` via `stockGradeModel()` (`gemini-2.5-flash`); compact prompts; `stopWhen: stepCountIs(3)` for minimal token use.
+- **Shared 24-hour DB cache**: `ai_stock_grade_cache` in Neon — one grade per ticker reused across all users; no duplicate Gemini calls for the same stock within TTL.
+- **Two-tier fetch model**: `cacheOnly` hydrates from DB on ticker change (zero AI tokens); full POST on Grade button click hits DB first, then Gemini only on miss/stale.
+- **No auto-generation**: React Query `enabled: false`; switching stocks never triggers Gemini; `useStockGrade` hook enforces explicit user intent.
+- **Inline chart header UI**: `StockGradeInline` shows symbol + color-coded grade badge beside K-line / TradingView toggle; reason on hover tooltip.
+- **Premium-gated**: Same membership + `api-guard.ts` pattern as Business Analysis; available on Todays Special scanner and Watchlist workspaces.
+
 ## ✅ Phase 5: Documentation & Knowledge Base
 - **Comprehensive Feature Analysis**: Developed `features.md` for page-by-page functionality mapping.
 - **System Architecture Mapping**: Created `architecture.md` detailing the technical blue-print.

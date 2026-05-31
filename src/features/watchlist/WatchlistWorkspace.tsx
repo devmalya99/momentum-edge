@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BookmarkCheck, LineChart, Loader2, Newspaper, Plus, Search, Trash2, ListPlus, Pencil, Sparkles } from 'lucide-react';
+import { Award, BookmarkCheck, LineChart, Loader2, Newspaper, Plus, Search, Trash2, ListPlus, Pencil, Sparkles } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget';
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
@@ -12,7 +12,9 @@ import TechnicalChartScoreControl, {
 } from '@/components/TechnicalChartScoreControl';
 import { useStockTagsQuery } from '@/features/stock-tags/useStockTagsQuery';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
+import StockGradeInline from '@/features/scanner/StockGradeInline';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
+import { useStockGrade } from '@/features/ai/useStockGradeQuery';
 import { toTradingViewSymbol, watchlistSymbolToTradingView } from '@/lib/tradingview-symbol';
 import { useTradeStore } from '@/store/useTradeStore';
 import type { NseEquitySearchHit } from '@/app/api/nse/equity-search/route';
@@ -203,6 +205,12 @@ export default function WatchlistWorkspace() {
         : null,
     [selectedWatchlistItem],
   );
+
+  const stockGrade = useStockGrade({
+    ticker: selectedAiStock?.ticker ?? '',
+    companyName: selectedAiStock?.companyName ?? '',
+    isPremium,
+  });
 
   const tradingViewSymbol = useMemo(() => {
     if (!selectedWatchlistItem) return '';
@@ -402,6 +410,30 @@ export default function WatchlistWorkspace() {
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Business Analysis
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!selectedAiStock) return;
+              requirePremiumForAi(() => {
+                void stockGrade.generateGrade();
+              });
+            }}
+            disabled={!selectedAiStock || stockGrade.isGenerating}
+            aria-label={
+              selectedAiStock
+                ? `Grade for ${selectedAiStock.ticker}`
+                : 'Grade (select an equity stock first)'
+            }
+            title={!isPremium ? 'Premium membership required for Grade' : undefined}
+            className="inline-flex items-center gap-2 rounded-xl border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-500/20 disabled:opacity-50"
+          >
+            {stockGrade.isGenerating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Award className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Grade
           </button>
           <button
             type="button"
@@ -741,10 +773,16 @@ export default function WatchlistWorkspace() {
               <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 text-xs text-gray-500">
                 <LineChart className="h-4 w-4 text-blue-400" aria-hidden />
                 <BookmarkCheck className="h-4 w-4 text-amber-300" aria-hidden />
-                <span className="font-mono text-[11px] text-gray-400">
-                  {selectedWatchlistItem.symbol}
-                  {selectedWatchlistItem.kind === 'index' ? ' · index' : ''}
-                </span>
+                <StockGradeInline
+                  symbolLabel={
+                    chartMode === 'tradingview' && tradingViewSymbol
+                      ? tradingViewSymbol
+                      : `${selectedWatchlistItem.symbol}${selectedWatchlistItem.kind === 'index' ? ' · index' : ''}`
+                  }
+                  grade={stockGrade.grade}
+                  reason={stockGrade.reason}
+                  isLoading={stockGrade.isGenerating}
+                />
                 <div className="ml-auto flex items-center gap-0.5 rounded-lg border border-white/10 bg-[#0a0a0b] p-0.5">
                   <button
                     type="button"

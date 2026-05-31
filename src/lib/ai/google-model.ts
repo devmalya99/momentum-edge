@@ -1,6 +1,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { extractJsonMiddleware, wrapLanguageModel } from 'ai';
 import { BUSINESS_ANALYSIS_MODEL } from '@/lib/ai/business-analysis';
+import { STOCK_GRADE_MODEL } from '@/lib/ai/stock-grade';
 
 function resolveGeminiApiKey(): string {
   const apiKey =
@@ -20,6 +21,13 @@ export const google = googleProvider;
 export function businessAnalysisModel() {
   return wrapLanguageModel({
     model: googleProvider(BUSINESS_ANALYSIS_MODEL),
+    middleware: extractJsonMiddleware(),
+  });
+}
+
+export function stockGradeModel() {
+  return wrapLanguageModel({
+    model: googleProvider(STOCK_GRADE_MODEL),
     middleware: extractJsonMiddleware(),
   });
 }

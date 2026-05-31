@@ -4,6 +4,7 @@ import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
+  Award,
   Bookmark,
   BookmarkCheck,
   Eye,
@@ -18,7 +19,9 @@ import NseEquityCandleChartWidget from '@/components/NseEquityCandleChartWidget'
 import TradingViewAdvancedChartWidget from '@/components/TradingViewAdvancedChartWidget';
 import ScanAnalysisSheet from '@/features/scanner/ScanAnalysisSheet';
 import StockAiOverviewSheet from '@/features/scanner/StockAiOverviewSheet';
+import StockGradeInline from '@/features/scanner/StockGradeInline';
 import StockNewsSheet from '@/features/news/StockNewsSheet';
+import { useStockGrade } from '@/features/ai/useStockGradeQuery';
 import { useTradingViewIndiaScreenerQuery } from '@/features/scanner/useTradingViewIndiaScreenerQuery';
 import { tradingViewScreenerRowToListItem } from '@/lib/tradingview-india-screener';
 import { toBseTradingViewQuerySymbol } from '@/lib/tradingview-symbol';
@@ -60,7 +63,7 @@ export default function Scanner52wWorkspace() {
   const [businessEvaluationOpen, setBusinessEvaluationOpen] = useState(false);
   const [newsSheetOpen, setNewsSheetOpen] = useState(false);
   const [scanAnalysisOpen, setScanAnalysisOpen] = useState(false);
-  const { requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
+  const { isPremium, requirePremiumForAi, guardAiSheetOpen } = usePremiumAiGate();
 
   const todaysSpecialQuery = useTradingViewIndiaScreenerQuery();
   const tvRows = useMemo(
@@ -112,6 +115,12 @@ export default function Scanner52wWorkspace() {
     const r = tvRows.find((x) => x.tvSymbol === selectedTvSymbol);
     return r ? { ticker: r.ticker, companyName: r.companyName } : null;
   }, [tvRows, selectedTvSymbol]);
+
+  const stockGrade = useStockGrade({
+    ticker: selectedStock?.ticker ?? '',
+    companyName: selectedStock?.companyName ?? '',
+    isPremium,
+  });
 
   const tradingViewChartSymbol = useMemo(
     () => toBseTradingViewQuerySymbol(selectedTvSymbol),
@@ -243,6 +252,29 @@ export default function Scanner52wWorkspace() {
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
               Business Analysis
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedStock) return;
+                requirePremiumForAi(() => {
+                  void stockGrade.generateGrade();
+                });
+              }}
+              disabled={!selectedStock || stockGrade.isGenerating}
+              aria-label={
+                selectedStock
+                  ? `Grade for ${selectedStock.ticker}`
+                  : 'Grade (select a stock first)'
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-200 transition-colors hover:bg-violet-500/18 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {stockGrade.isGenerating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Award className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Grade
             </button>
             <button
               type="button"
@@ -421,9 +453,12 @@ export default function Scanner52wWorkspace() {
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex shrink-0 items-center gap-2 border-b border-white/6 pb-2">
                 <LineChart className="h-3.5 w-3.5 shrink-0 text-cyan-400" aria-hidden />
-                <span className="min-w-0 truncate font-mono text-[11px] font-medium text-gray-300">
-                  {chartMode === 'tradingview' ? tradingViewChartSymbol : selectedTvSymbol}
-                </span>
+                <StockGradeInline
+                  symbolLabel={chartMode === 'tradingview' ? tradingViewChartSymbol : selectedTvSymbol}
+                  grade={stockGrade.grade}
+                  reason={stockGrade.reason}
+                  isLoading={stockGrade.isGenerating}
+                />
                 <div className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-white/8 bg-black/30 p-0.5">
                   <button
                     type="button"
