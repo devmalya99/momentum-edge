@@ -9,60 +9,20 @@
     "fractional",
     "minmove2",
     "currency",
-    "change",
+    "change|1W",
+    "relative_volume_10d_calc",
+    "earnings_per_share_diluted_yoy_growth_ttm",
+    "ROC",
+    "ROC|1W",
+    "RSI|1W",
     "Perf.W",
-    "Perf.1M",
-    "Perf.3M",
-    "Perf.6M",
-    "Perf.YTD",
-    "Perf.Y",
-    "Perf.5Y",
-    "Perf.10Y",
-    "Perf.All",
-    "Volatility.W",
-    "Volatility.M"
+    "ROC|1M"
   ],
   "filter": [
     {
-      "left": "change",
-      "operation": "greater",
-      "right": 0
-    },
-    {
-      "left": "change",
-      "operation": "in_range",
-      "right": [
-        1,
-        8.3
-      ]
-    },
-    {
-      "left": "RSI",
-      "operation": "greater",
-      "right": 58
-    },
-    {
-      "left": "Perf.W",
-      "operation": "in_range",
-      "right": [
-        0,
-        17
-      ]
-    },
-    {
       "left": "market_cap_basic",
       "operation": "egreater",
-      "right": 1000000000
-    },
-    {
-      "left": "RSI|1W",
-      "operation": "greater",
-      "right": 55
-    },
-    {
-      "left": "Perf.W",
-      "operation": "greater",
-      "right": 2
+      "right": 2000000000
     },
     {
       "left": "relative_volume_10d_calc",
@@ -70,19 +30,39 @@
       "right": 1.2
     },
     {
-      "left": "EMA20",
-      "operation": "egreater",
-      "right": "EMA100"
-    },
-    {
       "left": "AvgValue.Traded_10d",
       "operation": "greater",
       "right": 20000000
     },
     {
-      "left": "EMA20",
-      "operation": "egreater",
-      "right": "EMA50"
+      "left": "RSI",
+      "operation": "in_range",
+      "right": [
+        56,
+        80
+      ]
+    },
+    {
+      "left": "close",
+      "operation": "in_range%",
+      "right": [
+        "high",
+        0.97,
+        1
+      ]
+    },
+    {
+      "left": "RSI|1W",
+      "operation": "greater",
+      "right": 56
+    },
+    {
+      "left": "change",
+      "operation": "in_range",
+      "right": [
+        1,
+        8
+      ]
     },
     {
       "left": "is_primary",
@@ -99,7 +79,7 @@
     100
   ],
   "sort": {
-    "sortBy": "Perf.W",
+    "sortBy": "RSI|1W",
     "sortOrder": "asc"
   },
   "markets": [

@@ -39,17 +39,17 @@ function formatPrice(v: number | null): string {
 }
 
 const TODAYS_SPECIAL_FILTER_LINES = [
-  'Change: 1% to 8.3%',
-  'RSI > 58 and Weekly RSI > 55',
-  'Perf.W: 2% to 17%',
+  'Close at 97%–100% of high (near 52-week high)',
+  'RSI 56–80 and weekly RSI > 56',
+  'Daily change 1%–8%',
   'Relative volume (10D) > 1.2',
   '10D avg traded value > 20M',
-  'EMA20 >= EMA50 and EMA100',
-  'Market cap >= 1B and primary listings only',
+  'Market cap >= 2B and primary listings only',
+  'Sorted by weekly RSI (asc)',
 ] as const;
 
 const SCANNER_SUBTITLE =
-  'Momentum and liquidity screen for today: positive weekly strength with RSI and EMA trend filters.';
+  'Momentum screen near highs: controlled daily move with daily and weekly RSI strength plus liquidity filters.';
 
 export default function Scanner52wWorkspace() {
   const router = useRouter();
